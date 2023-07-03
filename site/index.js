@@ -1,17 +1,17 @@
-const { tokenizer } = require("../lib");
+import { parse, Source } from "../lib";
 
 const source = document.querySelector("#source");
 const output = document.querySelector("#output");
 
 function tokenize(value) {
   localStorage.setItem("source", value);
-  const sourceDoc = new tokenizer.Source("source", value);
-  const { tokens, errors } = tokenizer.tokenize(sourceDoc);
+  const sourceDoc = new Source("source", value);
+  const { ast, errors } = parse(sourceDoc);
   if (errors.length == 0) {
-    output.innerHTML = tokens.map((token) => JSON.stringify(token, null, 2)).join("<br>");
+    output.innerHTML = JSON.stringify(ast, null, 2).replace(/\n/g, "<br>");
   } else {
-    output.innerHTML = sourceDoc
-      .printErrors(errors)
+    output.innerHTML = errors
+      .map((error) => error.toString())
       .reduce((prev, curr) => prev + curr)
       .replace(/\n/g, "<br>");
   }
