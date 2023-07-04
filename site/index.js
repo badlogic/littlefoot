@@ -8,7 +8,7 @@ function tokenize(value) {
   const sourceDoc = new Source("source", value);
   const { ast, errors } = parse(sourceDoc);
   if (errors.length == 0) {
-    output.innerHTML = JSON.stringify(ast, null, 2).replace(/\n/g, "<br>");
+    output.innerHTML = JSON.stringify(ast, (key, value) => (key == "source" ? undefined : value), 2).replace(/\n/g, "<br>");
   } else {
     output.innerHTML = errors
       .map((error) => error.toString())
