@@ -23,6 +23,16 @@ if (stored) {
   tokenize(source.value);
 }
 
-source.addEventListener("input", () => {
+source.addEventListener("keydown", (event) => {
+  if (event.key == "Tab") {
+    event.preventDefault();
+    var start = source.selectionStart;
+    var end = source.selectionEnd;
+    source.value = source.value.substring(0, start) + "\t" + source.value.substring(end);
+    source.selectionStart = source.selectionEnd = start + 1;
+  }
+});
+
+source.addEventListener("input", (event) => {
   tokenize(source.value);
 });
