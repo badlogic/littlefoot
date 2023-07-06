@@ -1,10 +1,11 @@
-import { LittleFootError } from "./error.js";
-import { tokenize, TokenStream, IdentifierToken, StringToken, NumberToken, CommentToken, NothingToken } from "./tokenizer.js";
+import { LittleFootError } from "./error";
+import { tokenize, TokenStream, IdentifierToken, StringToken, NumberToken, CommentToken, NothingToken, Token } from "./tokenizer";
 // prettier-ignore
-import { ArrayLiteralNode, ArrayTypeNode, BinaryOperatorNode, BooleanLiteralNode, CommentNode, DoNode, ForEachNode, ForNode, FunctionCallNode, FunctionNode, FunctionTypeNode, IfNode, IsOperatorNode, MapLiteralNode, MapOrArrayAccessNode, MapTypeNode, MemberAccessNode, MethodCallNode, NameAndTypeNode, NothingLiteralNode, NumberLiteralNode, PlainTypeNode, StringLiteralNode, TernaryOperatorNode, TypeDeclarationNode, UnaryOperatorNode, VariableAccessNode, VariableNode, WhileNode } from "./ast.js";
+import { ArrayLiteralNode, ArrayTypeNode, AstNode, BinaryOperatorNode, BooleanLiteralNode, CommentNode, DoNode, ExpressionNode, ForEachNode, ForNode, FunctionCallNode, FunctionLiteralNode, FunctionNode, FunctionTypeNode, IfNode, IsOperatorNode, MapLiteralNode, MapOrArrayAccessNode, MapTypeNode, MemberAccessNode, MethodCallNode, NameAndTypeNode, NothingLiteralNode, NumberLiteralNode, PlainTypeNode, StatementNode, StringLiteralNode, TernaryOperatorNode, TypeDeclarationNode, TypeSpecifierNode, UnaryOperatorNode, VariableAccessNode, VariableNode, WhileNode } from "./ast";
+import { Source } from "./source";
 
-export function parse(source) {
-  let ast = [];
+export function parse(source: Source) {
+  let ast: AstNode[] = [];
   const { tokens, errors } = tokenize(source);
   if (errors.length > 0) return { ast, errors };
 
@@ -12,23 +13,25 @@ export function parse(source) {
 
   try {
     while (stream.hasMore()) {
-      ast.push(parseStatement(stream));
+      if (stream.matchValue("func")) {
+        ast.push(parseFunction(stream, true) as FunctionNode);
+      } else if (stream.matchValue("type")) {
+        ast.push(parseTypeDeclaration(stream));
+      } else {
+        ast.push(parseStatement(stream));
+      }
     }
   } catch (e) {
     if (e instanceof LittleFootError) errors.push(e);
-    else errors.push(new LittleFootError(0, 1, source, "Internal error: " + e.message + "\n" + e.stack));
+    else errors.push(new LittleFootError(0, 1, source, "Internal error: " + (e as any).message + "\n" + (e as any).stack));
   } finally {
     return { ast, errors };
   }
 }
 
-function parseStatement(stream) {
+function parseStatement(stream: TokenStream): StatementNode {
   if (stream.matchValue("var")) {
     return parseVariable(stream);
-  } else if (stream.matchValue("type")) {
-    return parseTypeDeclaration(stream);
-  } else if (stream.matchValue("func")) {
-    return parseFunction(stream, true);
   } else if (stream.matchValue("if")) {
     return parseIf(stream);
   } else if (stream.matchValue("while")) {
@@ -48,7 +51,7 @@ function parseStatement(stream) {
   }
 }
 
-function parseVariable(stream) {
+function parseVariable(stream: TokenStream) {
   stream.expectValue("var");
   const identifier = stream.expectType(IdentifierToken);
   const type = stream.matchValue(":", true) ? parseTypeSpecifier(stream) : null;
@@ -57,8 +60,8 @@ function parseVariable(stream) {
   return new VariableNode(identifier, initializer, type);
 }
 
-function parseTypeSpecifier(stream) {
-  const type = [];
+function parseTypeSpecifier(stream: TokenStream) {
+  const type: TypeSpecifierNode[] = [];
   do {
     if (stream.matchType(IdentifierToken) || stream.matchType(NothingToken)) {
       type.push(new PlainTypeNode(stream.next()));
@@ -76,13 +79,13 @@ function parseTypeSpecifier(stream) {
   return type;
 }
 
-function parseTypeDeclaration(stream) {
+function parseTypeDeclaration(stream: TokenStream) {
   stream.expectValue("type");
   const name = stream.expectType(IdentifierToken);
   const fields = [];
   while (stream.hasMore() && !stream.matchValue("end")) {
     if (stream.matchType(CommentToken)) {
-      fields.push(new CommentNode(stream.next()));
+      fields.push(new CommentNode([stream.next<CommentToken>()]));
     } else {
       fields.push(parseNameAndType(stream));
     }
@@ -91,14 +94,14 @@ function parseTypeDeclaration(stream) {
   return new TypeDeclarationNode(name, fields);
 }
 
-function parseNameAndType(stream) {
+function parseNameAndType(stream: TokenStream) {
   const name = stream.expectType(IdentifierToken);
   stream.expectValue(":");
   const type = parseTypeSpecifier(stream);
   return new NameAndTypeNode(name, type);
 }
 
-function parseFunction(stream, hasName) {
+function parseFunction(stream: TokenStream, hasName: boolean) {
   stream.expectValue("func");
   const name = hasName ? stream.expectType(IdentifierToken) : null;
   const { parameters, returnType } = parseFunctionSignature(stream);
@@ -107,10 +110,11 @@ function parseFunction(stream, hasName) {
     code.push(parseStatement(stream));
   }
   stream.expectValue("end");
-  return new FunctionNode(name, parameters, returnType, code);
+  if (hasName) return new FunctionNode(name, parameters, returnType, code);
+  else return new FunctionLiteralNode(parameters, returnType, code);
 }
 
-function parseFunctionSignature(stream) {
+function parseFunctionSignature(stream: TokenStream) {
   const parameters = [];
   stream.expectValue("(");
   while (stream.hasMore()) {
@@ -124,7 +128,7 @@ function parseFunctionSignature(stream) {
   return { name, parameters, returnType };
 }
 
-function parseIf(stream) {
+function parseIf(stream: TokenStream) {
   stream.expectValue("if");
   const condition = parseExpression(stream);
   stream.expectValue("then");
@@ -158,7 +162,7 @@ function parseIf(stream) {
   return new IfNode(condition, trueBlock, elseIfs, falseBlock);
 }
 
-function parseWhile(stream) {
+function parseWhile(stream: TokenStream) {
   stream.expectValue("while");
   const condition = parseExpression(stream);
   stream.expectValue("do");
@@ -171,7 +175,7 @@ function parseWhile(stream) {
   return new WhileNode(condition, block);
 }
 
-function parseDo(stream) {
+function parseDo(stream: TokenStream) {
   stream.expectValue("do");
   const block = [];
   while (stream.hasMore() && !stream.matchValue("while")) {
@@ -182,7 +186,7 @@ function parseDo(stream) {
   return new DoNode(condition, block);
 }
 
-function parseFor(stream) {
+function parseFor(stream: TokenStream) {
   stream.expectValue("for");
 
   if (stream.matchValue("each", true)) {
@@ -216,17 +220,17 @@ function parseFor(stream) {
   }
 }
 
-function parseExpression(stream) {
+function parseExpression(stream: TokenStream): ExpressionNode {
   return parseTernaryOperator(stream);
 }
 
-function parseTernaryOperator(stream) {
+function parseTernaryOperator(stream: TokenStream): ExpressionNode {
   const condition = parseBinaryOperator(stream, 0);
   if (stream.matchValue("?", true)) {
     const trueExpression = parseTernaryOperator(stream);
     stream.expectValue(":");
     const falseExpression = parseTernaryOperator(stream);
-    return TernaryOperatorNode(condition, trueExpression, falseExpression);
+    return new TernaryOperatorNode(condition, trueExpression, falseExpression);
   } else {
     return condition;
   }
@@ -234,7 +238,7 @@ function parseTernaryOperator(stream) {
 
 const binaryOperatorPrecedence = [["="], ["|", "&", "^"], ["==", "!="], ["<", "<=", ">", ">="], ["+", "-"], ["/", "*", "%"], ["is"]];
 
-function parseBinaryOperator(stream, level) {
+function parseBinaryOperator(stream: TokenStream, level: number): ExpressionNode {
   const nextLevel = level + 1;
   let leftExpression = nextLevel == binaryOperatorPrecedence.length ? parseUnaryOperator(stream) : parseBinaryOperator(stream, nextLevel);
   const operators = binaryOperatorPrecedence[level];
@@ -253,7 +257,7 @@ function parseBinaryOperator(stream, level) {
 
 const unaryOperators = ["!", "+", "-"];
 
-function parseUnaryOperator(stream) {
+function parseUnaryOperator(stream: TokenStream) {
   if (stream.matchValues(unaryOperators, false)) {
     return new UnaryOperatorNode(stream.next(), parseExpression(stream));
   } else {
@@ -267,7 +271,7 @@ function parseUnaryOperator(stream) {
   }
 }
 
-function parseAccessOrCallOrLiteral(stream) {
+function parseAccessOrCallOrLiteral(stream: TokenStream) {
   if (stream.matchValue("{", true)) {
     const keyValues = [];
     while (stream.hasMore()) {
@@ -293,7 +297,7 @@ function parseAccessOrCallOrLiteral(stream) {
     stream.expectValue("]");
     return new ArrayLiteralNode(elements);
   } else if (stream.matchValue("func")) {
-    return parseFunction(stream, false);
+    return parseFunction(stream, false) as FunctionLiteralNode;
   } else if (stream.matchType(StringToken)) {
     return new StringLiteralNode(stream.next());
   } else if (stream.matchType(NumberToken)) {
@@ -324,8 +328,8 @@ function parseAccessOrCallOrLiteral(stream) {
   }
 }
 
-function parseAccessOrCall(stream) {
-  let result = new VariableAccessNode(stream.expectType(IdentifierToken));
+function parseAccessOrCall(stream: TokenStream) {
+  let result: ExpressionNode = new VariableAccessNode(stream.expectType(IdentifierToken));
   while (stream.hasMore() && stream.matchValues(["(", "[", "."])) {
     if (stream.matchValue("(")) {
       const openingParanthesis = stream.tokens[stream.index];
@@ -350,7 +354,7 @@ function parseAccessOrCall(stream) {
   return result;
 }
 
-function parseArguments(stream) {
+function parseArguments(stream: TokenStream) {
   stream.expectValue("(");
   const args = [];
   while (stream.hasMore() && !stream.matchValue(")", true)) {

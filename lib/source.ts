@@ -1,13 +1,13 @@
+export class Line {
+  constructor(public readonly index: number, public readonly start: number, public end: number) {}
+}
+
 export class Source {
-  constructor(identifier, text) {
-    this.identifier = identifier;
-    this.text = text;
+  readonly lines: Line[];
+
+  constructor(public identifier: string, public text: string) {
     this.lines = [];
-    let line = {
-      index: 1,
-      start: 0,
-      end: 0,
-    };
+    let line: Line = new Line(1, 0, 0);
     let i = 0;
     for (; i < text.length; i++) {
       const char = text.charAt(i);
@@ -15,23 +15,17 @@ export class Source {
         line.end = i + 1;
         this.lines.push(line);
         if (i == text.length - 1) {
-          line = null;
+          return;
         } else {
-          line = {
-            index: line.index + 1,
-            start: line.end,
-            end: line.end + 1,
-          };
+          line = new Line(line.index + 1, line.end, line.end + 1);
         }
       }
     }
-    if (line) {
-      line.end = i + 1;
-      this.lines.push(line);
-    }
+    line.end = i + 1;
+    this.lines.push(line);
   }
 
-  indicesToLines(start, end) {
+  indicesToLines(start: number, end: number) {
     const startLine = this.lines.findIndex((line) => start >= line.start && start < line.end);
     const endLine = this.lines.findIndex((line) => end >= line.start && end <= line.end);
     return this.lines.slice(startLine, endLine + 1);

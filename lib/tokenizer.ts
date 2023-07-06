@@ -1,83 +1,70 @@
 import { LittleFootError } from "./error.js";
+import { Source } from "./source";
 
-export class Token {
-  constructor(start, end, value, source) {
-    this.start = start;
-    this.end = end;
-    this.value = value;
-    this.source = source;
-  }
+export abstract class Token {
+  constructor(public readonly start: number, public readonly end: number, public readonly value: number | string, public readonly source: Source) {}
 }
 
-export class NumberToken extends Token {
-  static type = "number";
-}
+export class NothingToken extends Token {}
+export class BoolToken extends Token {}
+export class NumberToken extends Token {}
+export class StringToken extends Token {}
+export class IdentifierToken extends Token {}
+export class KeywordToken extends Token {}
+export class OperatorToken extends Token {}
+export class CommentToken extends Token {}
 
-export class StringToken extends Token {
-  static type = "string";
-}
+type TokenConstructor<T extends Token> = abstract new (...args: any[]) => T;
 
-export class IdentifierToken extends Token {
-  static type = "identifier";
-}
-
-export class BoolToken extends Token {
-  static type = "bool";
-}
-
-export class NothingToken extends Token {
-  static type = "nothing";
-}
-
-export class KeywordToken extends Token {
-  static type = "keyword";
-}
-
-export class OperatorToken extends Token {
-  static type = "operator";
-}
-
-export class CommentToken extends Token {
-  static type = "comment";
+function tokenLabel<T extends Token>(tokenType: TokenConstructor<T>) {
+  if (tokenType instanceof NothingToken) return "nothing";
+  if (tokenType instanceof BoolToken) return "boolean";
+  if (tokenType instanceof NumberToken) return "number";
+  if (tokenType instanceof StringToken) return "string";
+  if (tokenType instanceof IdentifierToken) return "identifier";
+  if (tokenType instanceof KeywordToken) return "keyword";
+  if (tokenType instanceof OperatorToken) return "operator";
+  if (tokenType instanceof CommentToken) return "comment";
+  throw new Error("Unknown token type: " + tokenType.name);
 }
 
 const isLetterRegex = /\p{Alphabetic}/u;
 
-function isLetter(char) {
+function isLetter(char: string) {
   return isLetterRegex.test(char);
 }
 
-function isDigit(char) {
+function isDigit(char: string) {
   return char >= "0" && char <= "9";
 }
 
-function isHexDigit(char) {
+function isHexDigit(char: string) {
   return isDigit(char) || (char >= "a" && char <= "f") || (char >= "A" && char <= "F");
 }
 
-function isBinaryDigit(char) {
+function isBinaryDigit(char: string) {
   return char == "0" || char == "1";
 }
 
-function isIdentifierStart(char) {
+function isIdentifierStart(char: string) {
   return isLetter(char) || char === "_";
 }
 
-function isIdentifierPart(char) {
+function isIdentifierPart(char: string) {
   return isLetter(char) || isDigit(char) || char === "_";
 }
 
 let keywords = ["var", "if", "then", "elseif", "else", "while", "do", "for", "from", "each", "to", "step", "end", "type", "func"];
 let keywordsLookup = new Set(keywords);
 // prettier-ignore
-let operators = [ "=", "!", "|", "&", "^", "==", "!=", ">", ">=", "<", "<=", "+", "-", "*", "/", "%", "(", ")", "[", "]", ".", "?", ":", ",", "{", "}", "is"].sort((a, b) => b.length - a.length);
-const operatorStarts = new Set(operators.map((operator) => operator.charAt(0)));
-operators = new Set(operators);
+const operatorsList = [ "=", "!", "|", "&", "^", "==", "!=", ">", ">=", "<", "<=", "+", "-", "*", "/", "%", "(", ")", "[", "]", ".", "?", ":", ",", "{", "}", "is"].sort((a, b) => b.length - a.length);
+const operatorStarts = new Set(operatorsList.map((operator) => operator.charAt(0)));
+const operators = new Set(operatorsList);
 
-export function tokenize(source) {
+export function tokenize(source: Source) {
   const text = source.text;
-  let tokens = [];
-  let errors = [];
+  let tokens: Token[] = [];
+  let errors: LittleFootError[] = [];
   for (let i = 0, n = text.length; i < n; ) {
     const char = text.charAt(i);
 
@@ -153,7 +140,7 @@ export function tokenize(source) {
           errors.push(new LittleFootError(start, i, source, `Expected one or more hexadecimal digits.`));
           return { tokens, errors };
         }
-        tokens.push(new NumberToken(start, i, Number.parseInt(value, 16)));
+        tokens.push(new NumberToken(start, i, Number.parseInt(value, 16), source));
         continue;
       } else if (char == "0" && text.charAt(i) == "b") {
         value = "";
@@ -170,7 +157,7 @@ export function tokenize(source) {
           errors.push(new LittleFootError(start, i, source, `Expected one or more binary digits.`));
           return { tokens, errors };
         }
-        tokens.push(new NumberToken(start, i, Number.parseInt(value, 2)));
+        tokens.push(new NumberToken(start, i, Number.parseInt(value, 2), source));
         continue;
       } else {
         while (i < n && isDigit(text.charAt(i))) {
@@ -264,29 +251,25 @@ export function tokenize(source) {
 }
 
 export class TokenStream {
-  constructor(source, tokens) {
-    this.source = source;
-    this.tokens = tokens;
-    this.index = 0;
-  }
+  constructor(public readonly source: Source, public readonly tokens: Token[], public index: number = 0) {}
 
-  next() {
+  next<T extends Token>() {
     if (!this.hasMore()) throw new Error("Reached end of token stream. This should never happen.");
-    return this.tokens[this.index++];
+    return this.tokens[this.index++] as T;
   }
 
   hasMore() {
     return this.index < this.tokens.length;
   }
 
-  matchValue(value, consume) {
+  matchValue(value: string, consume = false) {
     if (!this.hasMore()) return false;
     const result = this.tokens[this.index].value === value;
     if (result && consume) this.next();
     return result;
   }
 
-  matchValues(values, consume) {
+  matchValues(values: string[], consume = false) {
     if (!this.hasMore()) return false;
     let result = false;
     const token = this.tokens[this.index];
@@ -300,7 +283,7 @@ export class TokenStream {
     return result;
   }
 
-  expectValue(value) {
+  expectValue(value: string) {
     if (!this.hasMore()) {
       throw new LittleFootError(this.source.text.length, this.source.text.length, this.source, `Expected '${value}' but reached end of file.`);
     }
@@ -312,7 +295,7 @@ export class TokenStream {
     return this.next();
   }
 
-  expectValues(values) {
+  expectValues(values: string[]) {
     if (!this.hasMore()) {
       throw new LittleFootError(this.source.text.length, this.source.text.length, this.source, `Expected '${values}' but reached end of file.`);
     }
@@ -330,50 +313,27 @@ export class TokenStream {
     return this.next();
   }
 
-  matchType(type, consume) {
+  matchType<T extends Token>(type: TokenConstructor<T>, consume = false) {
     if (!this.hasMore()) return false;
     const result = this.tokens[this.index] instanceof type;
     if (result && consume) this.next();
     return result;
   }
 
-  expectType(type) {
+  expectType<T extends Token>(type: TokenConstructor<T>): T {
     if (!this.hasMore()) {
-      throw new LittleFootError(this.source.text.length, this.source.text.length, this.source, `Expected '${type.type}' but reached end of file.`);
+      throw new LittleFootError(
+        this.source.text.length,
+        this.source.text.length,
+        this.source,
+        `Expected '${tokenLabel(type)}' but reached end of file.`
+      );
     }
     const token = this.tokens[this.index];
     const result = token instanceof type;
     if (!result) {
-      throw new LittleFootError(token.start, token.end, this.source, `Expected '${type.type}' but got '${token.value}'`);
+      throw new LittleFootError(token.start, token.end, this.source, `Expected '${tokenLabel(type)}' but got '${token.value}'`);
     }
-    return this.next();
-  }
-
-  expectTypes(types) {
-    if (!this.hasMore()) {
-      throw new LittleFootError(
-        this.source.text.length,
-        this.source.text.length,
-        this.source,
-        `Expected '${types.map((type) => type.type).join(" or ")}' but reached end of file.`
-      );
-    }
-    let result = false;
-    const token = this.tokens[this.index];
-    for (const type of types) {
-      if (token instanceof type) {
-        result = true;
-        break;
-      }
-    }
-    if (!result) {
-      throw new LittleFootError(
-        token.start,
-        token.end,
-        this.source,
-        `Expected '${types.map((type) => type.type).join(" or ")}' but got '${token.value}'`
-      );
-    }
-    return this.next();
+    return this.next<T>();
   }
 }

@@ -1,10 +1,8 @@
+import { Source } from "./source";
+import { Token } from "./tokenizer";
+
 export class LittleFootError {
-  constructor(start, end, source, message) {
-    this.start = start;
-    this.end = end;
-    this.source = source;
-    this.message = message;
-  }
+  constructor(public readonly start: number, public readonly end: number, public readonly source: Source, public readonly message: string) {}
 
   toString() {
     const lines = this.source.indicesToLines(this.start, this.end);
@@ -26,7 +24,7 @@ export class LittleFootError {
     return highlight;
   }
 
-  static fromTokens(tokens, message) {
+  static fromTokens(tokens: Token[], message: string) {
     return new LittleFootError(tokens[0].start, tokens[tokens.length - 1].end, tokens[0].source, message);
   }
 }

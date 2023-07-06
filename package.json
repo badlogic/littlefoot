@@ -6,7 +6,7 @@
   "scripts": {
     "prepare": "husky install",
     "build": "npm run clean && npm run build:lib && npm run build:site",
-    "build:lib": "npx esbuild --bundle lib/index.js --sourcemap --outfile=build/iife/littlefoot.js --format=iife --global-name=littlefoot",
+    "build:lib": "npx esbuild --bundle lib/index.ts --sourcemap --outfile=build/iife/littlefoot.js --format=iife --global-name=littlefoot",
     "build:site": "npx esbuild --bundle site/index.js --sourcemap --outfile=site/build/index.js --format=iife",
     "dev": "concurrently \"npx live-server\" \"npm run dev:lib\" \"npm run dev:site\"",
     "dev:lib": "npm run build:lib -- --watch",
