@@ -103,7 +103,7 @@ export class ForEachNode extends AstNode {
 }
 
 export class DoNode extends AstNode {
-  constructor(public readonly condition: AstNode, public readonly block: StatementNode[]) {
+  constructor(public readonly condition: ExpressionNode, public readonly block: StatementNode[]) {
     super("do");
   }
 }
