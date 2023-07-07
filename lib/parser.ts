@@ -1,7 +1,7 @@
 import { LittleFootError } from "./error";
 import { tokenize, TokenStream, IdentifierToken, StringToken, NumberToken, NothingToken } from "./tokenizer";
 // prettier-ignore
-import { ArrayLiteralNode, ArrayTypeNode, AstNode, BinaryOperatorNode, BooleanLiteralNode, DoNode, ExpressionNode, ForEachNode, ForNode, FunctionCallNode, FunctionLiteralNode, FunctionNode, FunctionTypeNode, IfNode, IsOperatorNode, MapLiteralNode, MapOrArrayAccessNode, MapTypeNode, MemberAccessNode, MethodCallNode, NameAndTypeNode, NothingLiteralNode, NumberLiteralNode, PlainTypeNode, StatementNode, StringLiteralNode, TernaryOperatorNode, RecordNode as RecordNode, TypeSpecifierNode, UnaryOperatorNode, VariableAccessNode, VariableNode, WhileNode, TupleTypeNode, TupleLiteralNode } from "./ast";
+import { ArrayLiteralNode, ArrayTypeNode, AstNode, BinaryOperatorNode, BooleanLiteralNode, DoNode, ExpressionNode, ForEachNode, ForNode, FunctionCallNode, FunctionLiteralNode, FunctionNode, FunctionTypeNode, IfNode, IsOperatorNode, MapLiteralNode, MapOrArrayAccessNode, MapTypeNode, MemberAccessNode, MethodCallNode, NameAndTypeNode, NothingLiteralNode, NumberLiteralNode, PlainTypeNode, StatementNode, StringLiteralNode, TernaryOperatorNode, RecordNode as RecordNode, TypeSpecifierNode, UnaryOperatorNode, VariableAccessNode, VariableNode, WhileNode, TupleTypeNode, TupleLiteralNode, ContinueNode, BreakNode, ReturnNode } from "./ast";
 import { Source } from "./source";
 
 export function parse(source: Source) {
@@ -40,6 +40,13 @@ function parseStatement(stream: TokenStream): StatementNode {
     return parseDo(stream);
   } else if (stream.matchValue("for")) {
     return parseFor(stream);
+  } else if (stream.matchValue("continue")) {
+    return new ContinueNode(stream.expectValue("continue"));
+  } else if (stream.matchValue("break")) {
+    return new BreakNode(stream.expectValue("break"));
+  } else if (stream.matchValue("return")) {
+    const firstToken = stream.expectValue("return");
+    return new ReturnNode(firstToken, stream.matchValue(";", true) ? null : parseExpression(stream));
   } else {
     return parseExpression(stream);
   }

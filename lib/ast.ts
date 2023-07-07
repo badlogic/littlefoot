@@ -69,7 +69,18 @@ export class FunctionNode extends AstNode {
   }
 }
 
-export type StatementNode = VariableNode | RecordNode | IfNode | WhileNode | ForEachNode | ForNode | DoNode | ExpressionNode;
+export type StatementNode =
+  | VariableNode
+  | RecordNode
+  | IfNode
+  | WhileNode
+  | ForEachNode
+  | ForNode
+  | DoNode
+  | ContinueNode
+  | BreakNode
+  | ReturnNode
+  | ExpressionNode;
 
 export class VariableNode extends AstNode {
   constructor(
@@ -130,6 +141,24 @@ export class ForEachNode extends AstNode {
 export class DoNode extends AstNode {
   constructor(firstToken: Token, public readonly condition: ExpressionNode, public readonly block: StatementNode[]) {
     super("do", firstToken, condition.lastToken);
+  }
+}
+
+export class ContinueNode extends AstNode {
+  constructor(token: Token) {
+    super("continue", token, token);
+  }
+}
+
+export class BreakNode extends AstNode {
+  constructor(token: Token) {
+    super("break", token, token);
+  }
+}
+
+export class ReturnNode extends AstNode {
+  constructor(firstToken: Token, expression: ExpressionNode | null) {
+    super("return", firstToken, expression ? expression.lastToken : firstToken);
   }
 }
 

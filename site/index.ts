@@ -5,7 +5,6 @@ import * as monaco from "monaco-editor";
 import { LittleFootError, parse, Source } from "../lib";
 
 const editorContainer = document.querySelector("#editor") as HTMLTextAreaElement;
-const source = document.querySelector("#source") as HTMLTextAreaElement;
 const output = document.querySelector("#output") as HTMLDivElement;
 
 (globalThis as any).self.MonacoEnvironment = {
