@@ -2,7 +2,13 @@ import { LittleFootError } from "./error.js";
 import { Source } from "./source";
 
 export abstract class Token {
-  constructor(public readonly start: number, public readonly end: number, public readonly value: number | string, public readonly source: Source) {}
+  constructor(
+    public readonly start: number,
+    public readonly end: number,
+    public readonly value: number | string,
+    public readonly source: Source,
+    public readonly comments: CommentToken[] = []
+  ) {}
 }
 
 export class NothingToken extends Token {}
@@ -65,6 +71,7 @@ export function tokenize(source: Source) {
   const text = source.text;
   let tokens: Token[] = [];
   let errors: LittleFootError[] = [];
+  let comments = [];
   for (let i = 0, n = text.length; i < n; ) {
     const char = text.charAt(i);
 
@@ -90,7 +97,7 @@ export function tokenize(source: Source) {
         value += c;
         i++;
       }
-      tokens.push(new CommentToken(start, i, value, source));
+      comments.push(new CommentToken(start, i, value, source));
       continue;
     }
 
@@ -98,16 +105,19 @@ export function tokenize(source: Source) {
     if (operatorStarts.has(char)) {
       let start = i;
       if (i == n && operators.has(char)) {
-        tokens.push(new OperatorToken(start, i, char, source));
+        tokens.push(new OperatorToken(start, i, char, source, comments));
+        comments = [];
         continue;
       }
       if (operators.has(char + text.charAt(i + 1))) {
-        tokens.push(new OperatorToken(start, i + 2, char + text.charAt(i + 1), source));
+        tokens.push(new OperatorToken(start, i + 2, char + text.charAt(i + 1), source, comments));
+        comments = [];
         i += 2;
         continue;
       }
       if (operators.has(char)) {
-        tokens.push(new OperatorToken(start, i + 1, char, source));
+        tokens.push(new OperatorToken(start, i + 1, char, source, comments));
+        comments = [];
         i++;
         continue;
       }
@@ -120,7 +130,8 @@ export function tokenize(source: Source) {
       i++;
 
       if (i == n) {
-        tokens.push(new NumberToken(start, i, Number.parseInt(char), source));
+        tokens.push(new NumberToken(start, i, Number.parseInt(char), source, comments));
+        comments = [];
         continue;
       }
 
@@ -140,7 +151,8 @@ export function tokenize(source: Source) {
           errors.push(new LittleFootError(start, i, source, `Expected one or more hexadecimal digits.`));
           return { tokens, errors };
         }
-        tokens.push(new NumberToken(start, i, Number.parseInt(value, 16), source));
+        tokens.push(new NumberToken(start, i, Number.parseInt(value, 16), source, comments));
+        comments = [];
         continue;
       } else if (char == "0" && text.charAt(i) == "b") {
         value = "";
@@ -157,7 +169,8 @@ export function tokenize(source: Source) {
           errors.push(new LittleFootError(start, i, source, `Expected one or more binary digits.`));
           return { tokens, errors };
         }
-        tokens.push(new NumberToken(start, i, Number.parseInt(value, 2), source));
+        tokens.push(new NumberToken(start, i, Number.parseInt(value, 2), source, comments));
+        comments = [];
         continue;
       } else {
         while (i < n && isDigit(text.charAt(i))) {
@@ -165,7 +178,8 @@ export function tokenize(source: Source) {
           i++;
         }
         if (i == n) {
-          tokens.push(new NumberToken(start, i, Number.parseFloat(value), source));
+          tokens.push(new NumberToken(start, i, Number.parseFloat(value), source, comments));
+          comments = [];
           continue;
         }
 
@@ -177,7 +191,8 @@ export function tokenize(source: Source) {
             i++;
           }
         }
-        tokens.push(new NumberToken(start, i, Number.parseFloat(value), source));
+        tokens.push(new NumberToken(start, i, Number.parseFloat(value), source, comments));
+        comments = [];
         continue;
       }
     }
@@ -211,7 +226,8 @@ export function tokenize(source: Source) {
           }
         } else if (char == '"') {
           closed = true;
-          tokens.push(new StringToken(start, i, value, source));
+          tokens.push(new StringToken(start, i, value, source, comments));
+          comments = [];
           break;
         } else {
           value += char;
@@ -233,14 +249,15 @@ export function tokenize(source: Source) {
       }
       const identifier = source.text.substring(start, i);
       if (identifier == "true" || identifier == "false") {
-        tokens.push(new BoolToken(start, i, identifier, source));
+        tokens.push(new BoolToken(start, i, identifier, source, comments));
       } else if (identifier == "nothing") {
-        tokens.push(new NothingToken(start, i, identifier, source));
+        tokens.push(new NothingToken(start, i, identifier, source, comments));
       } else if (keywordsLookup.has(identifier)) {
-        tokens.push(new KeywordToken(start, i, identifier, source));
+        tokens.push(new KeywordToken(start, i, identifier, source, comments));
       } else {
-        tokens.push(new IdentifierToken(start, i, identifier, source));
+        tokens.push(new IdentifierToken(start, i, identifier, source, comments));
       }
+      comments = [];
       continue;
     }
 

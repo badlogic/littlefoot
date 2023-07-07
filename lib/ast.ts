@@ -1,4 +1,4 @@
-import { BoolToken, CommentToken, IdentifierToken, KeywordToken, NothingToken, NumberToken, OperatorToken, StringToken, Token } from "./tokenizer";
+import { BoolToken, IdentifierToken, NothingToken, NumberToken, OperatorToken, StringToken, Token } from "./tokenizer";
 
 export abstract class AstNode {
   constructor(public readonly nodeLabel: string, public readonly firstToken: Token, public readonly lastToken: Token) {}
@@ -12,7 +12,7 @@ export abstract class AstNode {
   }
 }
 
-export type TypeSpecifierNode = PlainTypeNode | ArrayTypeNode | MapTypeNode | FunctionTypeNode;
+export type TypeSpecifierNode = PlainTypeNode | ArrayTypeNode | MapTypeNode | FunctionTypeNode | TupleTypeNode;
 
 export class PlainTypeNode extends AstNode {
   constructor(public readonly typeName: IdentifierToken) {
@@ -38,14 +38,20 @@ export class FunctionTypeNode extends AstNode {
   }
 }
 
+export class TupleTypeNode extends AstNode {
+  constructor(firstToken: Token, public readonly fields: NameAndTypeNode[], lastToken: Token) {
+    super("tuple type", firstToken, lastToken);
+  }
+}
+
 export class NameAndTypeNode extends AstNode {
-  constructor(public readonly name: IdentifierToken, type: TypeSpecifierNode[]) {
+  constructor(public readonly name: IdentifierToken, public readonly type: TypeSpecifierNode[]) {
     super("name and type", name, type[type.length - 1].lastToken);
   }
 }
 
 export class RecordNode extends AstNode {
-  constructor(firstToken: Token, public readonly name: IdentifierToken, public readonly fields: (NameAndTypeNode | CommentNode)[], lastToken: Token) {
+  constructor(firstToken: Token, public readonly name: IdentifierToken, public readonly fields: NameAndTypeNode[], lastToken: Token) {
     super("type declaration", firstToken, lastToken);
   }
 }
@@ -63,13 +69,7 @@ export class FunctionNode extends AstNode {
   }
 }
 
-export type StatementNode = CommentNode | VariableNode | RecordNode | IfNode | WhileNode | ForEachNode | ForNode | DoNode | ExpressionNode;
-
-export class CommentNode extends AstNode {
-  constructor(public readonly lines: CommentToken[]) {
-    super("comment", lines[0], lines[lines.length - 1]);
-  }
-}
+export type StatementNode = VariableNode | RecordNode | IfNode | WhileNode | ForEachNode | ForNode | DoNode | ExpressionNode;
 
 export class VariableNode extends AstNode {
   constructor(
@@ -144,6 +144,7 @@ export type ExpressionNode =
   | NothingLiteralNode
   | ArrayLiteralNode
   | MapLiteralNode
+  | TupleLiteralNode
   | FunctionLiteralNode
   | VariableAccessNode
   | MemberAccessNode
@@ -214,8 +215,14 @@ export class ArrayLiteralNode extends AstNode {
 }
 
 export class MapLiteralNode extends AstNode {
-  constructor(firstToken: Token, public readonly keyValues: ExpressionNode[], lastToken: Token) {
+  constructor(firstToken: Token, public readonly keys: StringToken[], values: ExpressionNode[], lastToken: Token) {
     super("map literal", firstToken, lastToken);
+  }
+}
+
+export class TupleLiteralNode extends AstNode {
+  constructor(firstToken: Token, public readonly fieldNames: IdentifierToken[], fieldValues: ExpressionNode[], lastToken: Token) {
+    super("tuple literal", firstToken, lastToken);
   }
 }
 

@@ -49,8 +49,11 @@ for each key in map.keys do
         print("It's a number: " + value)
     end
 end
-
 var a = map.a
+
+var tuple = {a: 0, b: 2}
+var tuple: <a: number, b: number> = {a: 0, b: 2}
+tuple.a = 0
 
 # a point type
 record point
@@ -69,7 +72,7 @@ end
 
 var n = node([], 1)
 
-func traverse(node: node)
+func traverse(node: node): nothing
     print(node.value.toString())
     if !(node.children is nothing) then
         for each child in children do
@@ -86,8 +89,14 @@ var f = func(a: number, b: number): number
     return a + b
 end
 
-func b(f: (a: number, b: number): number)
+func b(f: (a: number, b: number): number): nothing
     print(f(1, 2).toString())
+end
+
+func t(a: <x: number, y: number>): <x: number, y: number>
+    a.x = a.x * 10
+    a.y = a.y * 10
+    return a
 end
 
 for i from 0 to 10 step 2 do

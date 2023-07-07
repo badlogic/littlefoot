@@ -1,4 +1,5 @@
 import "monaco-editor/min/vs/editor/editor.main.css";
+// @ts-ignore
 import example from "../tests/parser-example.lf";
 import * as monaco from "monaco-editor";
 import { LittleFootError, parse, Source } from "../lib";
