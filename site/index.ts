@@ -1,4 +1,5 @@
 import "monaco-editor/min/vs/editor/editor.main.css";
+import example from "../tests/parser-example.lf";
 import * as monaco from "monaco-editor";
 import { LittleFootError, parse, Source } from "../lib";
 
@@ -28,6 +29,9 @@ editor.onDidChangeModelContent(() => {
 
 const stored = localStorage.getItem("source");
 if (stored) editor.setValue(stored);
+else {
+  editor.setValue(example);
+}
 tokenize(editor.getValue());
 
 function tokenize(value: string) {

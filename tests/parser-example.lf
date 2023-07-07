@@ -1,0 +1,123 @@
+# this is a comment
+# and another one
+var truthy = true
+var truthy: bool = true
+
+var num = 0
+var num: number = 2 + 34 + cosine(0.4)
+
+var str = "This is a test😊\n"
+var str: string = "This is a test😊\n"
+
+var union: bool | number | string | nothing = nothing
+
+if union is nothing then
+    print("Got nothing")
+else
+    if union is bool then
+        print("It's a boo: " + union.toString())
+    elseif union is number then
+        print("It's a number: " + union.toString())
+    elseif union is string then
+        print("It's a string: " + union)
+    end
+end
+
+var array = [0, 1, 3]
+var array: [number] = [23, 5, 43]
+var first = array[0]
+var last = array[array.length - 1]
+var sum = 0
+for each num in array do
+    sum = sum + num
+end
+print(sum)
+
+var array = [0, "test", true]
+var array: [number | string | bool] = [0, "test", true]
+
+var map = { "a": 1, "b": 2, "c": 3}
+var map: {number} = {"a": 1, "b": 2, "c": 3}
+var keys = map.keys
+var keys: [string] = map.keys
+var values = map.values
+
+var map: {number | string | [number]} = { "a" : 0, "b": "test", "c": [123, 123]}
+for each key in map.keys do
+    var value = map[key]
+    if value is number then
+        print("It's a number: " + value)
+    end
+end
+
+var a = map.a
+
+# a point type
+record point
+    # x-coord
+    x: number
+    # y-coord
+    y: number
+end
+var p = point(0, 1)
+print(point.x.toString())
+
+record node
+    children: [node] | nothing
+    value: number
+end
+
+var n = node([], 1)
+
+func traverse(node: node)
+    print(node.value.toString())
+    if !(node.children is nothing) then
+        for each child in children do
+            traverse(child)
+        end
+    end
+end
+
+func add(a: number, b: number): number
+    return a + b
+end
+
+var f = func(a: number, b: number): number
+    return a + b
+end
+
+func b(f: (a: number, b: number): number)
+    print(f(1, 2).toString())
+end
+
+for i from 0 to 10 step 2 do
+    print("Hello")
+end
+
+for each element in myArray do
+    print(element.toString())
+end
+
+while a > 0 do
+    a = a + 1
+    b = b + 1
+    if a > 0 then a = 10 end
+end
+
+do
+    a = 0
+    b = 123
+while c > 0
+
+if a then
+    a = 2
+    b = 3
+elseif b then
+    b = 2
+elseif c then
+    c = 8
+else
+    printf("oh no")
+end
+
+a.b.toString()

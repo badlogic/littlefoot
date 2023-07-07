@@ -14,7 +14,7 @@ const buildContext = await esbuild.context({
   outdir: "site/build/",
   loader: {
     ".ttf": "dataurl",
-    ".ul": "text",
+    ".lf": "text",
     ".html": "text",
   },
   logLevel: "info",

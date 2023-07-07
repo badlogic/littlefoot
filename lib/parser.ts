@@ -80,8 +80,17 @@ function parseTypeSpecifier(stream: TokenStream) {
         )
       );
     } else {
-      const token = stream.next();
-      throw new LittleFootError(token.start, token.end, stream.source, `Expected a type specifier, but got ${token.value}.`);
+      if (stream.hasMore()) {
+        const token = stream.next();
+        throw new LittleFootError(token.start, token.end, stream.source, `Expected a type specifier, but got ${token.value}.`);
+      } else {
+        throw new LittleFootError(
+          stream.source.text.length,
+          stream.source.text.length,
+          stream.source,
+          "Expected a type specifier, but reached end of file."
+        );
+      }
     }
   } while (stream.matchValue("|", true));
   return type;
