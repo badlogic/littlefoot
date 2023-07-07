@@ -54,7 +54,7 @@ function isIdentifierPart(char: string) {
   return isLetter(char) || isDigit(char) || char === "_";
 }
 
-let keywords = ["var", "if", "then", "elseif", "else", "while", "do", "for", "from", "each", "to", "step", "end", "type", "func"];
+let keywords = ["var", "if", "then", "elseif", "else", "while", "do", "for", "from", "each", "to", "step", "end", "record", "func"];
 let keywordsLookup = new Set(keywords);
 // prettier-ignore
 const operatorsList = [ "=", "!", "|", "&", "^", "==", "!=", ">", ">=", "<", "<=", "+", "-", "*", "/", "%", "(", ")", "[", "]", ".", "?", ":", ",", "{", "}", "is"].sort((a, b) => b.length - a.length);

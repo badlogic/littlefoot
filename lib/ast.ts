@@ -1,110 +1,135 @@
-import { BoolToken, CommentToken, IdentifierToken, NothingToken, NumberToken, OperatorToken, StringToken } from "./tokenizer";
+import { BoolToken, CommentToken, IdentifierToken, KeywordToken, NothingToken, NumberToken, OperatorToken, StringToken, Token } from "./tokenizer";
 
 export abstract class AstNode {
-  constructor(public readonly nodeLabel: string) {}
+  constructor(public readonly nodeLabel: string, public readonly firstToken: Token, public readonly lastToken: Token) {}
+
+  get start(): number {
+    return this.firstToken.start;
+  }
+
+  get end(): number {
+    return this.lastToken.end;
+  }
 }
 
 export type TypeSpecifierNode = PlainTypeNode | ArrayTypeNode | MapTypeNode | FunctionTypeNode;
 
 export class PlainTypeNode extends AstNode {
   constructor(public readonly typeName: IdentifierToken) {
-    super("plain type");
+    super("plain type", typeName, typeName);
   }
 }
 
 export class ArrayTypeNode extends AstNode {
-  constructor(public readonly elementTypes: TypeSpecifierNode[]) {
-    super("array type");
+  constructor(openingBracket: OperatorToken, public readonly elementTypes: TypeSpecifierNode[], closingBracket: OperatorToken) {
+    super("array type", openingBracket, closingBracket);
   }
 }
 
 export class MapTypeNode extends AstNode {
-  constructor(public readonly valueTypes: TypeSpecifierNode[]) {
-    super("map type");
+  constructor(openingCurly: OperatorToken, public readonly valueTypes: TypeSpecifierNode[], closingCurly: OperatorToken) {
+    super("map type", openingCurly, closingCurly);
   }
 }
 
 export class FunctionTypeNode extends AstNode {
-  constructor(public readonly parameters: NameAndTypeNode[], public returnType: TypeSpecifierNode[] | null) {
-    super("function type");
+  constructor(firstToken: Token, public readonly parameters: NameAndTypeNode[], public returnType: TypeSpecifierNode[] | null, lastToken: Token) {
+    super("function type", firstToken, lastToken);
   }
 }
 
 export class NameAndTypeNode extends AstNode {
-  constructor(public readonly name: IdentifierToken, public readonly type: TypeSpecifierNode[]) {
-    super("name and type");
+  constructor(public readonly name: IdentifierToken, type: TypeSpecifierNode[]) {
+    super("name and type", name, type[type.length - 1].lastToken);
   }
 }
 
-export class TypeDeclarationNode extends AstNode {
-  constructor(public readonly name: IdentifierToken, public readonly fields: (NameAndTypeNode | CommentNode)[]) {
-    super("type declaration");
+export class RecordNode extends AstNode {
+  constructor(firstToken: Token, public readonly name: IdentifierToken, public readonly fields: (NameAndTypeNode | CommentNode)[], lastToken: Token) {
+    super("type declaration", firstToken, lastToken);
   }
 }
 
 export class FunctionNode extends AstNode {
   constructor(
+    firstToken: Token,
     public readonly name: IdentifierToken | null,
     public readonly parameters: NameAndTypeNode[],
     public returnType: TypeSpecifierNode[] | null,
-    public readonly code: StatementNode[]
+    public readonly code: StatementNode[],
+    lastToken: Token
   ) {
-    super("function declaration");
+    super("function declaration", firstToken, lastToken);
   }
 }
 
-export type StatementNode = CommentNode | VariableNode | IfNode | WhileNode | ForEachNode | ForNode | DoNode | ExpressionNode;
+export type StatementNode = CommentNode | VariableNode | RecordNode | IfNode | WhileNode | ForEachNode | ForNode | DoNode | ExpressionNode;
 
 export class CommentNode extends AstNode {
   constructor(public readonly lines: CommentToken[]) {
-    super("comment");
+    super("comment", lines[0], lines[lines.length - 1]);
   }
 }
 
 export class VariableNode extends AstNode {
-  constructor(public readonly identifier: IdentifierToken, public readonly initializer: ExpressionNode, public type: TypeSpecifierNode[] | null) {
-    super("variable declaration");
+  constructor(
+    firstToken: Token,
+    public readonly identifier: IdentifierToken,
+    public type: TypeSpecifierNode[] | null,
+    public readonly initializer: ExpressionNode
+  ) {
+    super("variable declaration", firstToken, initializer.lastToken);
   }
 }
 
 export class IfNode extends AstNode {
   constructor(
+    firstToken: Token,
     public readonly condition: ExpressionNode,
     public readonly trueBlock: StatementNode[],
     public readonly elseIfs: IfNode[],
-    public readonly falseBlock: StatementNode[]
+    public readonly falseBlock: StatementNode[],
+    lastToken: Token
   ) {
-    super("if");
+    super("if", firstToken, lastToken);
   }
 }
 
 export class WhileNode extends AstNode {
-  constructor(public readonly condition: ExpressionNode, public readonly block: StatementNode[]) {
-    super("while");
+  constructor(firstToken: Token, public readonly condition: ExpressionNode, public readonly block: StatementNode[], lastToken: Token) {
+    super("while", firstToken, lastToken);
   }
 }
 
 export class ForNode extends AstNode {
   constructor(
+    firstToken: Token,
     public readonly identifier: IdentifierToken,
-    public readonly start: ExpressionNode,
-    public readonly end: ExpressionNode,
+    public readonly startExpression: ExpressionNode,
+    public readonly endExpression: ExpressionNode,
     public readonly step: ExpressionNode | null,
-    public readonly block: StatementNode[]
+    public readonly block: StatementNode[],
+    lastToken: Token
   ) {
-    super("for");
+    super("for", firstToken, lastToken);
   }
 }
 
 export class ForEachNode extends AstNode {
-  constructor(public readonly identifier: IdentifierToken, public readonly array: ExpressionNode, public readonly block: StatementNode[]) {
-    super("for each");
+  constructor(
+    firstToken: Token,
+    public readonly identifier: IdentifierToken,
+    public readonly array: ExpressionNode,
+    public readonly block: StatementNode[],
+    lastToken: Token
+  ) {
+    super("for each", firstToken, lastToken);
   }
 }
 
 export class DoNode extends AstNode {
-  constructor(public readonly condition: ExpressionNode, public readonly block: StatementNode[]) {
-    super("do");
+  constructor(firstToken: Token, public readonly condition: ExpressionNode, public readonly block: StatementNode[]) {
+    super("do", firstToken, condition.lastToken);
   }
 }
 
@@ -132,7 +157,7 @@ export class TernaryOperatorNode extends AstNode {
     public readonly trueExpression: ExpressionNode,
     public readonly falseExpression: ExpressionNode
   ) {
-    super("ternary operator");
+    super("ternary operator", condition.firstToken, falseExpression.lastToken);
   }
 }
 
@@ -142,90 +167,96 @@ export class BinaryOperatorNode extends AstNode {
     public readonly operator: OperatorToken,
     public readonly rightExpression: ExpressionNode
   ) {
-    super("binary operator");
+    super("binary operator", leftExpression.firstToken, rightExpression.lastToken);
   }
 }
 
 export class UnaryOperatorNode extends AstNode {
   constructor(public readonly operator: OperatorToken, public readonly expression: ExpressionNode) {
-    super("unary operator");
+    super("unary operator", operator, expression.lastToken);
   }
 }
 
 export class IsOperatorNode extends AstNode {
   constructor(public readonly leftExpression: ExpressionNode, public readonly type: TypeSpecifierNode[]) {
-    super("is operator");
+    super("is operator", leftExpression.firstToken, type[type.length - 1].lastToken);
   }
 }
 
 export class StringLiteralNode extends AstNode {
   constructor(public readonly token: StringToken) {
-    super("string");
+    super("string", token, token);
   }
 }
 
 export class NumberLiteralNode extends AstNode {
   constructor(public readonly token: NumberToken) {
-    super("number");
+    super("number", token, token);
   }
 }
 
 export class BooleanLiteralNode extends AstNode {
   constructor(public readonly token: BoolToken) {
-    super("boolean");
+    super("boolean", token, token);
   }
 }
 
 export class NothingLiteralNode extends AstNode {
   constructor(public readonly token: NothingToken) {
-    super("nothing");
+    super("nothing", token, token);
   }
 }
 
 export class ArrayLiteralNode extends AstNode {
-  constructor(public readonly elements: ExpressionNode[]) {
-    super("array literal");
+  constructor(firstToken: Token, public readonly elements: ExpressionNode[], lastToken: Token) {
+    super("array literal", firstToken, lastToken);
   }
 }
 
 export class MapLiteralNode extends AstNode {
-  constructor(public readonly keyValues: ExpressionNode[]) {
-    super("map literal");
+  constructor(firstToken: Token, public readonly keyValues: ExpressionNode[], lastToken: Token) {
+    super("map literal", firstToken, lastToken);
   }
 }
 
 export class FunctionLiteralNode extends AstNode {
-  constructor(public readonly parameters: NameAndTypeNode[], public returnType: TypeSpecifierNode[] | null, public readonly code: StatementNode[]) {
-    super("function literal");
+  constructor(
+    firstToken: Token,
+    public readonly parameters: NameAndTypeNode[],
+    public returnType: TypeSpecifierNode[] | null,
+    public readonly code: StatementNode[],
+    lastToken: Token
+  ) {
+    super("function literal", firstToken, lastToken);
   }
 }
 
 export class VariableAccessNode extends AstNode {
   constructor(public readonly name: IdentifierToken) {
-    super("variable access");
+    super("variable access", name, name);
   }
 }
 
 export class MemberAccessNode extends AstNode {
   constructor(public readonly object: ExpressionNode, public readonly member: IdentifierToken) {
-    super("member access");
+    super("member access", object.firstToken, member);
   }
 }
 
 export class MapOrArrayAccessNode extends AstNode {
-  constructor(public readonly target: ExpressionNode, public readonly keyOrIndex: ExpressionNode) {
-    super("map or array access");
+  constructor(public readonly target: ExpressionNode, public readonly keyOrIndex: ExpressionNode, lastToken: Token) {
+    super("map or array access", target.firstToken, lastToken);
   }
 }
 
 export class FunctionCallNode extends AstNode {
-  constructor(public readonly target: ExpressionNode, public readonly args: ExpressionNode[]) {
-    super("function call");
+  constructor(public readonly target: ExpressionNode, public readonly args: ExpressionNode[], lastToken: Token) {
+    super("function call", target.firstToken, lastToken);
   }
 }
 
 export class MethodCallNode extends AstNode {
-  constructor(public readonly target: ExpressionNode, public readonly args: ExpressionNode[]) {
-    super("method call");
+  constructor(public readonly target: ExpressionNode, public readonly args: ExpressionNode[], lastToken: Token) {
+    super("method call", target.firstToken, lastToken);
   }
 }
