@@ -17,14 +17,14 @@ export class CommentToken extends Token {}
 type TokenConstructor<T extends Token> = abstract new (...args: any[]) => T;
 
 function tokenLabel<T extends Token>(tokenType: TokenConstructor<T>) {
-  if (tokenType instanceof NothingToken) return "nothing";
-  if (tokenType instanceof BoolToken) return "boolean";
-  if (tokenType instanceof NumberToken) return "number";
-  if (tokenType instanceof StringToken) return "string";
-  if (tokenType instanceof IdentifierToken) return "identifier";
-  if (tokenType instanceof KeywordToken) return "keyword";
-  if (tokenType instanceof OperatorToken) return "operator";
-  if (tokenType instanceof CommentToken) return "comment";
+  if (tokenType.name == "NothingToken") return "nothing";
+  if (tokenType.name == "BoolToken") return "boolean";
+  if (tokenType.name == "NumberToken") return "number";
+  if (tokenType.name == "StringToken") return "string";
+  if (tokenType.name == "IdentifierToken") return "identifier";
+  if (tokenType.name == "KeywordToken") return "keyword";
+  if (tokenType.name == "OperatorToken") return "operator";
+  if (tokenType.name == "CommentToken") return "comment";
   throw new Error("Unknown token type: " + tokenType.name);
 }
 

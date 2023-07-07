@@ -79,6 +79,9 @@ function parseTypeSpecifier(stream: TokenStream) {
           returnType ? returnType[returnType.length - 1].lastToken : closingParanthesis
         )
       );
+    } else {
+      const token = stream.next();
+      throw new LittleFootError(token.start, token.end, stream.source, `Expected a type specifier, but got ${token.value}.`);
     }
   } while (stream.matchValue("|", true));
   return type;
