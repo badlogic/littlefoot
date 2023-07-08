@@ -1,7 +1,7 @@
 import { LittleFootError } from "./error";
-import { tokenize, TokenStream, IdentifierToken, StringToken, NumberToken, NothingToken } from "./tokenizer";
+import { tokenize, TokenStream, IdentifierToken, StringToken, NumberToken, NothingToken, TupleOpeningToken } from "./tokenizer";
 // prettier-ignore
-import { ArrayLiteralNode, ArrayTypeNode, AstNode, BinaryOperatorNode, BooleanLiteralNode, DoNode, ExpressionNode, ForEachNode, ForNode, FunctionCallNode, FunctionLiteralNode, FunctionNode, FunctionTypeNode, IfNode, IsOperatorNode, MapLiteralNode, MapOrArrayAccessNode, MapTypeNode, MemberAccessNode, MethodCallNode, NameAndTypeNode, NothingLiteralNode, NumberLiteralNode, PlainTypeNode, StatementNode, StringLiteralNode, TernaryOperatorNode, RecordNode as RecordNode, TypeSpecifierNode, UnaryOperatorNode, VariableAccessNode, VariableNode, WhileNode, TupleTypeNode, TupleLiteralNode, ContinueNode, BreakNode, ReturnNode } from "./ast";
+import { ArrayLiteralNode, ArrayTypeNode, BinaryOperatorNode, BooleanLiteralNode, DoNode, ExpressionNode, ForEachNode, ForNode, FunctionCallNode, FunctionLiteralNode, FunctionNode, FunctionTypeNode, IfNode, IsOperatorNode, MapLiteralNode, MapOrArrayAccessNode, MapTypeNode, MemberAccessNode, MethodCallNode, NameAndTypeNode, NothingLiteralNode, NumberLiteralNode, StatementNode, StringLiteralNode, TernaryOperatorNode, RecordNode as RecordNode, TypeSpecifierNode, UnaryOperatorNode, VariableAccessNode, VariableNode, WhileNode, TupleTypeNode, TupleLiteralNode, ContinueNode, BreakNode, ReturnNode, TypeNode, NamedTypeNode, AstNode } from "./ast";
 import { Source } from "./source";
 
 export function parse(source: Source) {
@@ -17,6 +17,12 @@ export function parse(source: Source) {
         ast.push(parseFunction(stream, true) as FunctionNode);
       } else if (stream.matchValue("record")) {
         ast.push(parseRecord(stream));
+      } else if (stream.matchValue("type")) {
+        const firstToken = stream.expectValue("type");
+        const name = stream.expectType(IdentifierToken);
+        stream.expectValue("=");
+        const type = parseTypeSpecifier(stream);
+        ast.push(new TypeNode(firstToken, name, type));
       } else {
         ast.push(parseStatement(stream));
       }
@@ -65,13 +71,13 @@ function parseTypeSpecifier(stream: TokenStream) {
   const type: TypeSpecifierNode[] = [];
   do {
     if (stream.matchType(IdentifierToken) || stream.matchType(NothingToken)) {
-      type.push(new PlainTypeNode(stream.next()));
+      type.push(new NamedTypeNode(stream.next()));
     } else if (stream.matchValue("[")) {
       type.push(new ArrayTypeNode(stream.expectValue("["), parseTypeSpecifier(stream), stream.expectValue("]")));
     } else if (stream.matchValue("{")) {
       type.push(new MapTypeNode(stream.expectValue("{"), parseTypeSpecifier(stream), stream.expectValue("}")));
-    } else if (stream.matchValue("<")) {
-      const firstToken = stream.expectValue("<");
+    } else if (stream.matchType(TupleOpeningToken)) {
+      const firstToken = stream.expectType(TupleOpeningToken);
       if (stream.matchType(IdentifierToken)) {
         const fields = [];
         while (stream.hasMore() && !stream.matchValue(">")) {
@@ -258,16 +264,18 @@ function parseFor(stream: TokenStream) {
   }
 }
 
-function parseExpression(stream: TokenStream): ExpressionNode {
-  return parseTernaryOperator(stream);
+export type ExpressionContext = { inTuple: boolean; inParans: boolean };
+
+function parseExpression(stream: TokenStream, context: ExpressionContext = { inTuple: false, inParans: false }): ExpressionNode {
+  return parseTernaryOperator(stream, context);
 }
 
-function parseTernaryOperator(stream: TokenStream): ExpressionNode {
-  const condition = parseBinaryOperator(stream, 0);
+function parseTernaryOperator(stream: TokenStream, context: ExpressionContext): ExpressionNode {
+  const condition = parseBinaryOperator(stream, 0, context);
   if (stream.matchValue("?", true)) {
-    const trueExpression = parseTernaryOperator(stream);
+    const trueExpression = parseTernaryOperator(stream, context);
     stream.expectValue(":");
-    const falseExpression = parseTernaryOperator(stream);
+    const falseExpression = parseTernaryOperator(stream, context);
     return new TernaryOperatorNode(condition, trueExpression, falseExpression);
   } else {
     return condition;
@@ -276,17 +284,20 @@ function parseTernaryOperator(stream: TokenStream): ExpressionNode {
 
 const binaryOperatorPrecedence = [["="], ["|", "&", "^"], ["==", "!="], ["<", "<=", ">", ">="], ["+", "-"], ["/", "*", "%"], ["is"]];
 
-function parseBinaryOperator(stream: TokenStream, level: number): ExpressionNode {
+function parseBinaryOperator(stream: TokenStream, level: number, context: ExpressionContext): ExpressionNode {
   const nextLevel = level + 1;
-  let leftExpression = nextLevel == binaryOperatorPrecedence.length ? parseUnaryOperator(stream) : parseBinaryOperator(stream, nextLevel);
-  const operators = binaryOperatorPrecedence[level];
+  let leftExpression =
+    nextLevel == binaryOperatorPrecedence.length ? parseUnaryOperator(stream, context) : parseBinaryOperator(stream, nextLevel, context);
+  let operators = binaryOperatorPrecedence[level];
+  if (context.inTuple && !context.inParans) operators = operators.filter((op) => op != ">");
   while (stream.hasMore() && stream.matchValues(operators, false)) {
     const operator = stream.next();
     if (operator.value == "is") {
       const type = parseTypeSpecifier(stream);
       leftExpression = new IsOperatorNode(leftExpression, type);
     } else {
-      const rightExpression = nextLevel == binaryOperatorPrecedence.length ? parseUnaryOperator(stream) : parseBinaryOperator(stream, nextLevel);
+      const rightExpression =
+        nextLevel == binaryOperatorPrecedence.length ? parseUnaryOperator(stream, context) : parseBinaryOperator(stream, nextLevel, context);
       leftExpression = new BinaryOperatorNode(leftExpression, operator, rightExpression);
     }
   }
@@ -295,13 +306,15 @@ function parseBinaryOperator(stream: TokenStream, level: number): ExpressionNode
 
 const unaryOperators = ["!", "+", "-"];
 
-function parseUnaryOperator(stream: TokenStream) {
+function parseUnaryOperator(stream: TokenStream, context: ExpressionContext) {
   if (stream.matchValues(unaryOperators, false)) {
-    return new UnaryOperatorNode(stream.next(), parseExpression(stream));
+    return new UnaryOperatorNode(stream.next(), parseExpression(stream, context));
   } else {
     if (stream.matchValue("(", true)) {
-      const expression = parseExpression(stream);
+      context.inParans = true;
+      const expression = parseExpression(stream, context);
       stream.expectValue(")");
+      context.inParans = false;
       return expression;
     } else {
       return parseAccessOrCallOrLiteral(stream);
@@ -313,37 +326,20 @@ function parseAccessOrCallOrLiteral(stream: TokenStream) {
   if (stream.matchValue("{")) {
     const firstToken = stream.expectValue("{");
 
-    if (stream.matchType(IdentifierToken)) {
-      const fieldNames: IdentifierToken[] = [];
-      const fieldValues: ExpressionNode[] = [];
-      while (stream.hasMore()) {
-        if (stream.matchValue("}")) break;
-        const name = stream.expectType(IdentifierToken);
-        stream.expectValue(":");
-        const value = parseExpression(stream);
-        fieldNames.push(name);
-        fieldValues.push(value);
-        if (stream.matchValue("}")) break;
-        stream.expectValue(",");
-      }
-      const lastToken = stream.expectValue("}");
-      return new TupleLiteralNode(firstToken, fieldNames, fieldValues, lastToken);
-    } else {
-      const keys: StringToken[] = [];
-      const values: ExpressionNode[] = [];
-      while (stream.hasMore()) {
-        if (stream.matchValue("}")) break;
-        const key = stream.expectType(StringToken);
-        stream.expectValue(":");
-        const value = parseExpression(stream);
-        keys.push(key);
-        values.push(value);
-        if (stream.matchValue("}")) break;
-        stream.expectValue(",");
-      }
-      const lastToken = stream.expectValue("}");
-      return new MapLiteralNode(firstToken, keys, values, lastToken);
+    const keys: StringToken[] = [];
+    const values: ExpressionNode[] = [];
+    while (stream.hasMore()) {
+      if (stream.matchValue("}")) break;
+      const key = stream.expectType(StringToken);
+      stream.expectValue(":");
+      const value = parseExpression(stream);
+      keys.push(key);
+      values.push(value);
+      if (stream.matchValue("}")) break;
+      stream.expectValue(",");
     }
+    const lastToken = stream.expectValue("}");
+    return new MapLiteralNode(firstToken, keys, values, lastToken);
   } else if (stream.matchValue("[")) {
     const firstToken = stream.expectValue("[");
     const elements = [];
@@ -355,6 +351,22 @@ function parseAccessOrCallOrLiteral(stream: TokenStream) {
     }
     const lastToken = stream.expectValue("]");
     return new ArrayLiteralNode(firstToken, elements, lastToken);
+  } else if (stream.matchType(TupleOpeningToken)) {
+    const firstToken = stream.expectType(TupleOpeningToken);
+    const fieldNames: IdentifierToken[] = [];
+    const fieldValues: ExpressionNode[] = [];
+    while (stream.hasMore()) {
+      if (stream.matchValue(">")) break;
+      const name = stream.expectType(IdentifierToken);
+      stream.expectValue(":");
+      const value = parseExpression(stream, { inTuple: true, inParans: false });
+      fieldNames.push(name);
+      fieldValues.push(value);
+      if (stream.matchValue(">")) break;
+      stream.expectValue(",");
+    }
+    const lastToken = stream.expectValue(">");
+    return new TupleLiteralNode(firstToken, fieldNames, fieldValues, lastToken);
   } else if (stream.matchValue("func")) {
     return parseFunction(stream, false) as FunctionLiteralNode;
   } else if (stream.matchType(StringToken)) {

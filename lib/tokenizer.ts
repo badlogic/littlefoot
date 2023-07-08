@@ -19,6 +19,8 @@ export class IdentifierToken extends Token {}
 export class KeywordToken extends Token {}
 export class OperatorToken extends Token {}
 export class CommentToken extends Token {}
+export class TupleOpeningToken extends Token {}
+export class TupleClosingToken extends Token {}
 
 type TokenConstructor<T extends Token> = abstract new (...args: any[]) => T;
 
@@ -283,6 +285,16 @@ export function tokenize(source: Source) {
     errors.push(new LittleFootError(i, i + 1, source, `Unknown token.`));
     return { tokens, errors };
   }
+
+  // Post process the tokens and find the pattern "< identifier :"
+  // rewrite the < operator token to be a tuple literal opening token.
+  for (let i = 0; i < tokens.length - 2; i++) {
+    if (tokens[i].value == "<" && tokens[i + 1] instanceof IdentifierToken && tokens[i + 2].value == ":") {
+      const token = tokens[i];
+      tokens[i] = new TupleOpeningToken(token.start, token.end, token.value + "|", token.source, token.comments);
+    }
+  }
+
   return { tokens, errors };
 }
 

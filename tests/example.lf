@@ -18,7 +18,7 @@ for each element in array do
 end
 
 var map: {number | string}= {"a": 0, "b": "test"}
-var tuple: <x: number, y: number> = { x: 0, y: 0 }
+var tuple: <x: number, y: number> = < x: 0, y: 0 >
 record vector
     x: number
     y: number
@@ -73,8 +73,8 @@ for each key in map.keys do
 end
 var a = map.a
 
-var tuple = { a: 0, b: 2 }
-var tuple: <a: number, b: number> =  { a: 0, b: 2 }
+var tuple = < a: 0, b: 2 >
+var tuple: <a: number, b: number> =  < a: 0, b: 2 > 2>
 tuple.a = 0
 
 # a point type
@@ -91,6 +91,8 @@ record node
     children: [node] | nothing
     value: number
 end
+
+type alias = node | point | [number]
 
 var n = node([], 1)
 
