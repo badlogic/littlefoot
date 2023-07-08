@@ -64,6 +64,9 @@ function isIdentifierPart(char: string) {
 
 export const keywords = [
   "var",
+  "record",
+  "func",
+  "type",
   "if",
   "then",
   "elseif",
@@ -76,8 +79,6 @@ export const keywords = [
   "to",
   "step",
   "end",
-  "record",
-  "func",
   "continue",
   "break",
   "return",
