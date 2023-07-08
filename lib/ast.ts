@@ -52,7 +52,7 @@ export class NameAndTypeNode extends AstNode {
 
 export class RecordNode extends AstNode {
   constructor(firstToken: Token, public readonly name: IdentifierToken, public readonly fields: NameAndTypeNode[], lastToken: Token) {
-    super("type declaration", firstToken, lastToken);
+    super("record declaration", firstToken, lastToken);
   }
 }
 
