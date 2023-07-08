@@ -1,4 +1,4 @@
-import { LittleFootError } from "./error.js";
+import { LittleFootError } from "./error";
 import { Source } from "./source";
 
 export abstract class Token {

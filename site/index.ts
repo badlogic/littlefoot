@@ -1,5 +1,5 @@
 // @ts-ignore
-import example from "../tests/parser-example.lf";
+import example from "../tests/example.lf";
 import { parse, Source } from "../lib";
 import { Editor } from "./editor";
 

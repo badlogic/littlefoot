@@ -50,6 +50,19 @@ export class NameAndTypeNode extends AstNode {
   }
 }
 
+export type StatementNode =
+  | VariableNode
+  | RecordNode
+  | IfNode
+  | WhileNode
+  | ForEachNode
+  | ForNode
+  | DoNode
+  | ContinueNode
+  | BreakNode
+  | ReturnNode
+  | ExpressionNode;
+
 export class RecordNode extends AstNode {
   constructor(firstToken: Token, public readonly name: IdentifierToken, public readonly fields: NameAndTypeNode[], lastToken: Token) {
     super("record declaration", firstToken, lastToken);
@@ -68,19 +81,6 @@ export class FunctionNode extends AstNode {
     super("function declaration", firstToken, lastToken);
   }
 }
-
-export type StatementNode =
-  | VariableNode
-  | RecordNode
-  | IfNode
-  | WhileNode
-  | ForEachNode
-  | ForNode
-  | DoNode
-  | ContinueNode
-  | BreakNode
-  | ReturnNode
-  | ExpressionNode;
 
 export class VariableNode extends AstNode {
   constructor(

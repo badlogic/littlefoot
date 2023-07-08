@@ -3,6 +3,28 @@
 var truthy = true
 var truthy: bool = true
 
+var bool = true
+var num = 0
+var str = "This is a test"
+var array: [string | number | bool] = ["string", 0, true]
+for each element in array do
+    if element is string then
+        print(element)
+    elseif element is number then
+        print(number.toString())
+    elseif element is bool then
+        print(element.toString())
+    end
+end
+
+var map: {number | string}= {"a": 0, "b": "test"}
+var tuple: <x: number, y: number> = { x: 0, y: 0 }
+record vector
+    x: number
+    y: number
+end
+var v = vector(0, 0)
+
 var num = 0
 var num: number = 2 + 34 + cosine(0.4)
 
@@ -51,8 +73,8 @@ for each key in map.keys do
 end
 var a = map.a
 
-var tuple = {a: 0, b: 2}
-var tuple: <a: number, b: number> = {a: 0, b: 2}
+var tuple = { a: 0, b: 2 }
+var tuple: <a: number, b: number> =  { a: 0, b: 2 }
 tuple.a = 0
 
 # a point type
