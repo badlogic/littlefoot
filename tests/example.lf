@@ -88,6 +88,38 @@ traverse(n)
 var n = node([], 1)
 n.traverse()
 
+# type aliased named tuples get an auto-generated constructor function
+# e.g. func color(r: number, g: number, b: number) return <r: r, g: g, b: b> end
+type color = <r: number, g: number, b: number>
+func toString(color: color): string
+    return "r: " + r + ", g:" + g + ", b"
+end
+type colored = <color: color>
+type rectangle = colored + <width: number, height: number> # mixins!
+type circle = colored + <radius: number>
+var r = rectangle(color(255, 0, 255), 13, 23)
+var c = circle(color(255, 0, 255), 3)
+type shapes = rectangle | circle
+
+func shapeInfo(shape: shapes): nothing
+    if shape is rectangle then
+        # shape is now known to be a rectangle
+        print("rectangle: " + shape.color.toString() + shape.width + ", " + shape.height)
+    elseif shape is circle then
+    else
+        print("Oh no.")
+    end
+end
+
+func coloredInfo(colored: colored): nothing
+    print("colored: " + colored.color.toString())
+end
+
+shapeInfo(r)
+shapeInfo(c)
+coloredInfo(r) # r conforms to colored
+coloredInfo(c) # c conforms to colored
+
 func add(a: number, b: number): number
     return a + b
 end

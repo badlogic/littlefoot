@@ -286,7 +286,7 @@ export class MapLiteralNode extends BaseAstNode {
 
 export class TupleLiteralNode extends BaseAstNode {
   public readonly kind: "tuple literal" = "tuple literal";
-  constructor(firstToken: Token, public readonly fieldNames: IdentifierToken[], fieldValues: ExpressionNode[], lastToken: Token) {
+  constructor(firstToken: Token, public readonly fieldNames: IdentifierToken[], public readonly fieldValues: ExpressionNode[], lastToken: Token) {
     super(firstToken, lastToken);
   }
 }
