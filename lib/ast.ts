@@ -5,7 +5,7 @@ export type AstNode = NameAndTypeNode | TypeSpecifierNode | TopLevelNode;
 
 export type TypeSpecifierNode = NamedTypeNode | ArrayTypeNode | MapTypeNode | FunctionTypeNode | TupleTypeNode;
 
-export type TopLevelNode = FunctionNode | RecordNode | TypeNode | StatementNode;
+export type TopLevelNode = FunctionNode | TypeNode | StatementNode;
 
 export type StatementNode =
   | VariableNode
@@ -92,13 +92,6 @@ export class NameAndTypeNode extends BaseAstNode {
   public readonly kind: "name and type" = "name and type";
   constructor(public readonly name: IdentifierToken, public readonly typeNode: TypeSpecifierNode[]) {
     super(name, typeNode[typeNode.length - 1].lastToken);
-  }
-}
-
-export class RecordNode extends BaseAstNode {
-  public readonly kind: "record declaration" = "record declaration";
-  constructor(firstToken: Token, public readonly name: IdentifierToken, public readonly fields: NameAndTypeNode[], lastToken: Token) {
-    super(firstToken, lastToken);
   }
 }
 

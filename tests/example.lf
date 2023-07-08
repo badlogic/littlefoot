@@ -3,28 +3,6 @@
 var truthy = true
 var truthy: bool = true
 
-var bool = true
-var num = 0
-var str = "This is a test"
-var array: [string | number | bool] = ["string", 0, true]
-for each element in array do
-    if element is string then
-        print(element)
-    elseif element is number then
-        print(number.toString())
-    elseif element is bool then
-        print(element.toString())
-    end
-end
-
-var map: {number | string}= {"a": 0, "b": "test"}
-var tuple: <x: number, y: number> = < x: 0, y: 0 >
-record vector
-    x: number
-    y: number
-end
-var v = vector(0, 0)
-
 var num = 0
 var num: number = 2 + 34 + cosine(0.4)
 
@@ -77,24 +55,23 @@ var tuple = < a: 0, b: 2 >
 var tuple: <a: number, b: number> =  < a: 0, b: 2 > 2>
 tuple.a = 0
 
-# a point type
-record point
-    # x-coord
-    x: number
-    # y-coord
-    y: number
-end
-var p = point(0, 1)
-print(point.x.toString())
-
-record node
-    children: [node] | nothing
+type node = <
+    children: [node] | nothing,
     value: number
+>
+
+# Auto-generate constructor function for named tuples?
+func node(children: [node] | nothing, value: number): node
+    return <children: children, value: value>
 end
 
-type alias = node | point | [number]
+func node(value: number): node
+    return <children: [], value: value>
+end
 
+var n: node = <children: [], value: 1>
 var n = node([], 1)
+var leaf = node(1)
 
 func traverse(node: node): nothing
     print(node.value.toString())
@@ -104,6 +81,12 @@ func traverse(node: node): nothing
         end
     end
 end
+
+var n = node([], 1)
+traverse(n)
+
+var n = node([], 1)
+n.traverse()
 
 func add(a: number, b: number): number
     return a + b

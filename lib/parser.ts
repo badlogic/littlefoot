@@ -1,7 +1,7 @@
 import { LittleFootError } from "./error";
 import { tokenize, TokenStream, IdentifierToken, StringToken, NumberToken, NothingToken, TupleOpeningToken } from "./tokenizer";
 // prettier-ignore
-import { ArrayLiteralNode, ArrayTypeNode, BinaryOperatorNode, BooleanLiteralNode, DoNode, ExpressionNode, ForEachNode, ForNode, FunctionCallNode, FunctionLiteralNode, FunctionNode, FunctionTypeNode, IfNode, IsOperatorNode, MapLiteralNode, MapOrArrayAccessNode, MapTypeNode, MemberAccessNode, MethodCallNode, NameAndTypeNode, NothingLiteralNode, NumberLiteralNode, StatementNode, StringLiteralNode, TernaryOperatorNode, RecordNode as RecordNode, TypeSpecifierNode, UnaryOperatorNode, VariableAccessNode, VariableNode, WhileNode, TupleTypeNode, TupleLiteralNode, ContinueNode, BreakNode, ReturnNode, TypeNode, NamedTypeNode, AstNode } from "./ast";
+import { ArrayLiteralNode, ArrayTypeNode, BinaryOperatorNode, BooleanLiteralNode, DoNode, ExpressionNode, ForEachNode, ForNode, FunctionCallNode, FunctionLiteralNode, FunctionNode, FunctionTypeNode, IfNode, IsOperatorNode, MapLiteralNode, MapOrArrayAccessNode, MapTypeNode, MemberAccessNode, MethodCallNode, NameAndTypeNode, NothingLiteralNode, NumberLiteralNode, StatementNode, StringLiteralNode, TernaryOperatorNode, TypeSpecifierNode, UnaryOperatorNode, VariableAccessNode, VariableNode, WhileNode, TupleTypeNode, TupleLiteralNode, ContinueNode, BreakNode, ReturnNode, TypeNode, NamedTypeNode, AstNode } from "./ast";
 import { Source } from "./source";
 
 export function parse(source: Source) {
@@ -15,8 +15,6 @@ export function parse(source: Source) {
     while (stream.hasMore()) {
       if (stream.matchValue("func")) {
         ast.push(parseFunction(stream, true) as FunctionNode);
-      } else if (stream.matchValue("record")) {
-        ast.push(parseRecord(stream));
       } else if (stream.matchValue("type")) {
         const firstToken = stream.expectValue("type");
         const name = stream.expectType(IdentifierToken);
@@ -114,17 +112,6 @@ function parseTypeSpecifier(stream: TokenStream) {
     }
   } while (stream.matchValue("|", true));
   return type;
-}
-
-function parseRecord(stream: TokenStream) {
-  const firstToken = stream.expectValue("record");
-  const name = stream.expectType(IdentifierToken);
-  const fields = [];
-  while (stream.hasMore() && !stream.matchValue("end")) {
-    fields.push(parseNameAndType(stream));
-  }
-  const lastToken = stream.expectValue("end");
-  return new RecordNode(firstToken, name, fields, lastToken);
 }
 
 function parseNameAndType(stream: TokenStream) {
