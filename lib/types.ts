@@ -1,4 +1,4 @@
-import { FunctionNode, RecordNode } from "./ast";
+import { FunctionNode } from "./ast";
 
 export abstract class BaseType {
   constructor(public readonly signature: string) {}
@@ -20,7 +20,14 @@ export class ArrayType extends BaseType {
   public readonly kind: "array" = "array";
 
   constructor(public readonly elementTypes: BaseType[]) {
-    super("[" + elementTypes.map((type) => type.signature).join("|") + "]");
+    super(
+      "[" +
+        elementTypes
+          .map((type) => type.signature)
+          .sort()
+          .join("|") +
+        "]"
+    );
   }
 }
 
@@ -28,7 +35,14 @@ export class MapType extends BaseType {
   public readonly kind: "map" = "map";
 
   constructor(public readonly valueTypes: BaseType[]) {
-    super("{" + valueTypes.map((type) => type.signature).join("|") + "}");
+    super(
+      "{" +
+        valueTypes
+          .map((type) => type.signature)
+          .sort()
+          .join("|") +
+        "}"
+    );
   }
 }
 
@@ -36,7 +50,14 @@ export class TupleType extends BaseType {
   public readonly kind: "tuple" = "tuple";
 
   constructor(public readonly fields: NameAndType[]) {
-    super("<" + fields.map((field) => field.name + ":" + field.type.signature).join(",") + ">");
+    super(
+      "<" +
+        fields
+          .map((field) => field.name + ":" + field.type.signature)
+          .sort()
+          .join(",") +
+        ">"
+    );
   }
 }
 
@@ -44,15 +65,15 @@ export class FunctionType extends BaseType {
   public readonly kind: "function" = "function";
 
   constructor(public readonly parameters: NameAndType[], public readonly returnType: BaseType, public readonly node: FunctionNode | null) {
-    super("(" + parameters.map((param) => param.type.signature).join(",") + "):" + returnType.signature);
-  }
-}
-
-export class RecordType extends BaseType {
-  public readonly kind: "record" = "record";
-
-  constructor(public readonly name: string, public readonly fields: NameAndType[], public readonly node: RecordNode) {
-    super(name);
+    super(
+      "(" +
+        parameters
+          .map((param) => param.type.signature)
+          .sort()
+          .join(",") +
+        "):" +
+        returnType.signature
+    );
   }
 }
 
@@ -60,19 +81,24 @@ export class UnionType extends BaseType {
   public readonly kind: "union" = "union";
 
   constructor(public readonly types: BaseType[]) {
-    super(types.map((type) => type.signature).join("|"));
+    super(
+      types
+        .map((type) => type.signature)
+        .sort()
+        .join("|")
+    );
   }
 }
 
-export class AliasType extends BaseType {
-  public readonly kind: "alias" = "alias";
+export class NamedType extends BaseType {
+  public readonly kind: "named" = "named";
 
   constructor(public readonly name: string, public readonly type: BaseType) {
     super(name);
   }
 }
 
-export type Type = PrimitiveType | ArrayType | MapType | TupleType | FunctionType | RecordType | UnionType | AliasType;
+export type Type = PrimitiveType | ArrayType | MapType | TupleType | FunctionType | UnionType | NamedType;
 
 export const NothingType = new PrimitiveType("nothing");
 export const BooleanType = new PrimitiveType("boolean");

@@ -102,18 +102,18 @@ export class MixinTypeNode extends BaseAstNode {
   }
 }
 
-export class NameAndTypeNode extends BaseAstNode {
-  public readonly kind: "name and type" = "name and type";
-  constructor(public readonly name: IdentifierToken, public readonly typeNode: TypeSpecifierNode) {
-    super(name, typeNode.lastToken);
-  }
-}
-
 export class TypeNode extends BaseAstNode {
   public readonly kind: "type declaration" = "type declaration";
 
   constructor(firstToken: Token, public readonly name: IdentifierToken, public readonly typeNode: TypeSpecifierNode) {
     super(firstToken, typeNode.lastToken);
+  }
+}
+
+export class NameAndTypeNode extends BaseAstNode {
+  public readonly kind: "name and type" = "name and type";
+  constructor(public readonly name: IdentifierToken, public readonly typeNode: TypeSpecifierNode) {
+    super(name, typeNode.lastToken);
   }
 }
 
