@@ -124,7 +124,7 @@ export function checkNodeTypes(node: AstNode, types: Types) {
       for (const field of node.fields) {
         checkNodeTypes(field, types);
       }
-      node.type = new TupleType(node.fields.map((field) => field.type as NameAndType));
+      node.type = new TupleType(node.fields.map((field) => new NameAndType(field.name.value, field.type)));
       break;
     }
     case "union type": {

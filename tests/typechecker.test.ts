@@ -1,7 +1,7 @@
 import * as fs from "fs";
 import { Source, parse } from "../lib";
 import { checkTypes } from "../lib/typechecker";
-import { NamedType, NothingType, NumberType, Types, UnionType } from "../lib/types";
+import { ArrayType, NamedType, NothingType, NumberType, Types, UnionType } from "../lib/types";
 
 describe("Typechecker tests", () => {
   it("Should validate simple named types", () => {
@@ -11,26 +11,35 @@ describe("Typechecker tests", () => {
         `
         type a = nothing
         type b = number
-        type u = a | b
+        type c = [number]
+        type d = {number}
+        type e = <x: number, y: string>
+        type u = a | b | nothing
     `
       )
     );
     const types = new Types();
     checkTypes(ast, errors, types);
+    expect(errors.length).toBe(0);
 
     const a = types.get("a")! as NamedType;
-    expect(a.kind == "named type").toBe(true);
-    expect(a.type == NothingType).toBe(true);
+    expect(a.kind).toBe("named type");
+    expect(a.type).toStrictEqual(NothingType);
 
     const b = types.get("b")! as NamedType;
-    expect(b.kind == "named type").toBe(true);
-    expect(b.type == NumberType).toBe(true);
+    expect(b.kind).toBe("named type");
+    expect(b.type).toStrictEqual(NumberType);
+
+    const c = types.get("c")! as NamedType;
+    expect(c.kind).toBe("named type");
+    expect(c.type).toStrictEqual(new ArrayType(NumberType));
 
     const u = types.get("u")! as NamedType;
-    expect(u.kind == "named type").toBe(true);
-    expect(u.type.kind == "union").toBe(true);
-    expect((u.type as UnionType).types[0] === a).toBe(true);
-    expect((u.type as UnionType).types[1] === b).toBe(true);
+    expect(u.kind).toBe("named type");
+    expect(u.type.kind).toBe("union");
+    expect((u.type as UnionType).types[0]).toStrictEqual(a);
+    expect((u.type as UnionType).types[1]).toStrictEqual(b);
+    expect((u.type as UnionType).types[2]).toStrictEqual(NothingType);
   });
 
   it("Shouldn't allow built-in names for named types", () => {
