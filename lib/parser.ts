@@ -1,7 +1,7 @@
 import { LittleFootError } from "./error";
-import { tokenize, TokenStream, IdentifierToken, StringToken, NumberToken, NothingToken, TupleOpeningToken } from "./tokenizer";
+import { tokenize, TokenStream, IdentifierToken, StringToken, NumberToken, NothingToken, TupleOpeningToken, Token, OperatorToken } from "./tokenizer";
 // prettier-ignore
-import { ArrayLiteralNode, ArrayTypeNode, BinaryOperatorNode, BooleanLiteralNode, DoNode, ExpressionNode, ForEachNode, ForNode, FunctionCallNode, FunctionLiteralNode, FunctionNode, FunctionTypeNode, IfNode, IsOperatorNode, MapLiteralNode, MapOrArrayAccessNode, MapTypeNode, MemberAccessNode, MethodCallNode, NameAndTypeNode, NothingLiteralNode, NumberLiteralNode, StatementNode, StringLiteralNode, TernaryOperatorNode, TypeSpecifierNode, UnaryOperatorNode, VariableAccessNode, VariableNode, WhileNode, TupleTypeNode, TupleLiteralNode, ContinueNode, BreakNode, ReturnNode, TypeNode, NamedTypeNode, AstNode } from "./ast";
+import { ArrayLiteralNode, ArrayTypeNode, BinaryOperatorNode, BooleanLiteralNode, DoNode, ExpressionNode, ForEachNode, ForNode, FunctionCallNode, FunctionLiteralNode, FunctionNode, FunctionTypeNode, IfNode, IsOperatorNode, MapLiteralNode, MapOrArrayAccessNode, MapTypeNode, MemberAccessNode, MethodCallNode, NameAndTypeNode, NothingLiteralNode, NumberLiteralNode, StatementNode, StringLiteralNode, TernaryOperatorNode, TypeSpecifierNode, UnaryOperatorNode, VariableAccessNode, VariableNode, WhileNode, TupleTypeNode, TupleLiteralNode, ContinueNode, BreakNode, ReturnNode, TypeNode, NamedTypeNode, AstNode, MixinTypeNode, UnionTypeNode } from "./ast";
 import { Source } from "./source";
 
 export function parse(source: Source) {
@@ -66,37 +66,27 @@ function parseVariable(stream: TokenStream) {
 }
 
 function parseTypeSpecifier(stream: TokenStream) {
-  const type: TypeSpecifierNode[] = [];
+  const types: TypeSpecifierNode[] = [];
+  const operators: OperatorToken[] = [];
   do {
     if (stream.matchType(IdentifierToken) || stream.matchType(NothingToken)) {
-      type.push(new NamedTypeNode(stream.next()));
+      types.push(new NamedTypeNode(stream.next()));
     } else if (stream.matchValue("[")) {
-      type.push(new ArrayTypeNode(stream.expectValue("["), parseTypeSpecifier(stream), stream.expectValue("]")));
+      types.push(new ArrayTypeNode(stream.expectValue("["), parseTypeSpecifier(stream), stream.expectValue("]")));
     } else if (stream.matchValue("{")) {
-      type.push(new MapTypeNode(stream.expectValue("{"), parseTypeSpecifier(stream), stream.expectValue("}")));
+      types.push(new MapTypeNode(stream.expectValue("{"), parseTypeSpecifier(stream), stream.expectValue("}")));
     } else if (stream.matchType(TupleOpeningToken)) {
       const firstToken = stream.expectType(TupleOpeningToken);
-      if (stream.matchType(IdentifierToken)) {
-        const fields = [];
-        while (stream.hasMore() && !stream.matchValue(">")) {
-          fields.push(parseNameAndType(stream));
-          if (!stream.matchValue(">")) stream.expectValue(",");
-        }
-        const lastToken = stream.expectValue(">");
-        type.push(new TupleTypeNode(firstToken, fields, lastToken));
-      } else {
-        type.push(new MapTypeNode(firstToken, parseTypeSpecifier(stream), stream.expectValue("}")));
+      const fields = [];
+      while (stream.hasMore() && !stream.matchValue(">")) {
+        fields.push(parseNameAndType(stream));
+        if (!stream.matchValue(">")) stream.expectValue(",");
       }
+      const lastToken = stream.expectValue(">");
+      types.push(new TupleTypeNode(firstToken, fields, lastToken));
     } else if (stream.matchValue("(")) {
       const { openingParanthesis, parameters, closingParanthesis, returnType } = parseFunctionSignature(stream);
-      type.push(
-        new FunctionTypeNode(
-          openingParanthesis,
-          parameters,
-          returnType,
-          returnType ? returnType[returnType.length - 1].lastToken : closingParanthesis
-        )
-      );
+      types.push(new FunctionTypeNode(openingParanthesis, parameters, returnType, returnType ? returnType.lastToken : closingParanthesis));
     } else {
       if (stream.hasMore()) {
         const token = stream.next();
@@ -110,8 +100,42 @@ function parseTypeSpecifier(stream: TokenStream) {
         );
       }
     }
-  } while (stream.matchValue("|", true));
-  return type;
+    if (stream.matchValue("|") || stream.matchValue("+")) {
+      operators.push(stream.next());
+    } else {
+      break;
+    }
+  } while (true);
+
+  // Only one type given, return it directly
+  if (types.length == 1) {
+    return types[0];
+  }
+
+  // Otherwise coalesc mixin types
+  const coalescedTypes: TypeSpecifierNode[] = [];
+
+  coalescedTypes.push(types[0]);
+  for (let i = 1; i < types.length; i++) {
+    const type = types[i];
+    const operator = operators[i - 1];
+    if (operator.value == "+") {
+      const lastType = coalescedTypes[coalescedTypes.length - 1];
+      if (lastType instanceof MixinTypeNode) {
+        lastType.mixinTypes.push(type);
+      } else {
+        coalescedTypes[coalescedTypes.length - 1] = new MixinTypeNode([lastType, type]);
+      }
+    } else {
+      coalescedTypes.push(type);
+    }
+  }
+
+  if (coalescedTypes.length == 1) {
+    return coalescedTypes[0];
+  } else {
+    return new UnionTypeNode(coalescedTypes);
+  }
 }
 
 function parseNameAndType(stream: TokenStream) {

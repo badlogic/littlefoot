@@ -3,7 +3,7 @@ import { Type } from "./types";
 
 export type AstNode = NameAndTypeNode | TypeSpecifierNode | TopLevelNode;
 
-export type TypeSpecifierNode = NamedTypeNode | ArrayTypeNode | MapTypeNode | FunctionTypeNode | TupleTypeNode;
+export type TypeSpecifierNode = NamedTypeNode | ArrayTypeNode | MapTypeNode | FunctionTypeNode | TupleTypeNode | UnionTypeNode | MixinTypeNode;
 
 export type TopLevelNode = FunctionNode | TypeNode | StatementNode;
 
@@ -62,21 +62,21 @@ export class NamedTypeNode extends BaseAstNode {
 export class ArrayTypeNode extends BaseAstNode {
   public readonly kind: "array type" = "array type";
 
-  constructor(openingBracket: OperatorToken, public readonly elementTypes: TypeSpecifierNode[], closingBracket: OperatorToken) {
+  constructor(openingBracket: OperatorToken, public readonly elementTypes: TypeSpecifierNode, closingBracket: OperatorToken) {
     super(openingBracket, closingBracket);
   }
 }
 
 export class MapTypeNode extends BaseAstNode {
   public readonly kind: "map type" = "map type";
-  constructor(openingCurly: OperatorToken, public readonly valueTypes: TypeSpecifierNode[], closingCurly: OperatorToken) {
+  constructor(openingCurly: OperatorToken, public readonly valueTypes: TypeSpecifierNode, closingCurly: OperatorToken) {
     super(openingCurly, closingCurly);
   }
 }
 
 export class FunctionTypeNode extends BaseAstNode {
   public readonly kind: "function type" = "function type";
-  constructor(firstToken: Token, public readonly parameters: NameAndTypeNode[], public returnType: TypeSpecifierNode[] | null, lastToken: Token) {
+  constructor(firstToken: Token, public readonly parameters: NameAndTypeNode[], public returnType: TypeSpecifierNode | null, lastToken: Token) {
     super(firstToken, lastToken);
   }
 }
@@ -88,18 +88,32 @@ export class TupleTypeNode extends BaseAstNode {
   }
 }
 
+export class UnionTypeNode extends BaseAstNode {
+  public readonly kind: "union type" = "union type";
+  constructor(public readonly unionTypes: TypeSpecifierNode[]) {
+    super(unionTypes[0].firstToken, unionTypes[unionTypes.length - 1].lastToken);
+  }
+}
+
+export class MixinTypeNode extends BaseAstNode {
+  public readonly kind: "mixin type" = "mixin type";
+  constructor(public readonly mixinTypes: TypeSpecifierNode[]) {
+    super(mixinTypes[0].firstToken, mixinTypes[mixinTypes.length - 1].lastToken);
+  }
+}
+
 export class NameAndTypeNode extends BaseAstNode {
   public readonly kind: "name and type" = "name and type";
-  constructor(public readonly name: IdentifierToken, public readonly typeNode: TypeSpecifierNode[]) {
-    super(name, typeNode[typeNode.length - 1].lastToken);
+  constructor(public readonly name: IdentifierToken, public readonly typeNode: TypeSpecifierNode) {
+    super(name, typeNode.lastToken);
   }
 }
 
 export class TypeNode extends BaseAstNode {
   public readonly kind: "type declaration" = "type declaration";
 
-  constructor(firstToken: Token, public readonly name: IdentifierToken, public readonly typeNode: TypeSpecifierNode[]) {
-    super(firstToken, typeNode[typeNode.length - 1].lastToken);
+  constructor(firstToken: Token, public readonly name: IdentifierToken, public readonly typeNode: TypeSpecifierNode) {
+    super(firstToken, typeNode.lastToken);
   }
 }
 
@@ -109,7 +123,7 @@ export class FunctionNode extends BaseAstNode {
     firstToken: Token,
     public readonly name: IdentifierToken | null,
     public readonly parameters: NameAndTypeNode[],
-    public returnType: TypeSpecifierNode[] | null,
+    public returnType: TypeSpecifierNode | null,
     public readonly code: StatementNode[],
     lastToken: Token
   ) {
@@ -122,7 +136,7 @@ export class VariableNode extends BaseAstNode {
   constructor(
     firstToken: Token,
     public readonly identifier: IdentifierToken,
-    public typeNode: TypeSpecifierNode[] | null,
+    public typeNode: TypeSpecifierNode | null,
     public readonly initializer: ExpressionNode
   ) {
     super(firstToken, initializer.lastToken);
@@ -237,8 +251,8 @@ export class UnaryOperatorNode extends BaseAstNode {
 
 export class IsOperatorNode extends BaseAstNode {
   public readonly kind: "is operator" = "is operator";
-  constructor(public readonly leftExpression: ExpressionNode, public readonly typeNode: TypeSpecifierNode[]) {
-    super(leftExpression.firstToken, typeNode[typeNode.length - 1].lastToken);
+  constructor(public readonly leftExpression: ExpressionNode, public readonly typeNode: TypeSpecifierNode) {
+    super(leftExpression.firstToken, typeNode.lastToken);
   }
 }
 
@@ -296,7 +310,7 @@ export class FunctionLiteralNode extends BaseAstNode {
   constructor(
     firstToken: Token,
     public readonly parameters: NameAndTypeNode[],
-    public returnType: TypeSpecifierNode[] | null,
+    public returnType: TypeSpecifierNode | null,
     public readonly code: StatementNode[],
     lastToken: Token
   ) {
