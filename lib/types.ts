@@ -1,11 +1,11 @@
-import { FunctionNode } from "./ast";
+import { FunctionLiteralNode, FunctionNode, TypeNode } from "./ast";
 
 export abstract class BaseType {
   constructor(public readonly signature: string) {}
 }
 
 export class NameAndType {
-  constructor(public readonly name: string, public readonly type: BaseType) {}
+  constructor(public readonly name: string, public type: Type) {}
 }
 
 export class PrimitiveType extends BaseType {
@@ -19,30 +19,16 @@ export class PrimitiveType extends BaseType {
 export class ArrayType extends BaseType {
   public readonly kind: "array" = "array";
 
-  constructor(public readonly elementTypes: BaseType[]) {
-    super(
-      "[" +
-        elementTypes
-          .map((type) => type.signature)
-          .sort()
-          .join("|") +
-        "]"
-    );
+  constructor(public readonly elementType: Type) {
+    super("[" + elementType.signature + "]");
   }
 }
 
 export class MapType extends BaseType {
   public readonly kind: "map" = "map";
 
-  constructor(public readonly valueTypes: BaseType[]) {
-    super(
-      "{" +
-        valueTypes
-          .map((type) => type.signature)
-          .sort()
-          .join("|") +
-        "}"
-    );
+  constructor(public readonly valueType: Type) {
+    super("{" + valueType.signature + "}");
   }
 }
 
@@ -64,23 +50,15 @@ export class TupleType extends BaseType {
 export class FunctionType extends BaseType {
   public readonly kind: "function" = "function";
 
-  constructor(public readonly parameters: NameAndType[], public readonly returnType: BaseType, public readonly node: FunctionNode | null) {
-    super(
-      "(" +
-        parameters
-          .map((param) => param.type.signature)
-          .sort()
-          .join(",") +
-        "):" +
-        returnType.signature
-    );
+  constructor(public readonly parameters: NameAndType[], public returnType: Type) {
+    super("(" + parameters.map((param) => param.type.signature).join(",") + "):" + returnType.signature);
   }
 }
 
 export class UnionType extends BaseType {
   public readonly kind: "union" = "union";
 
-  constructor(public readonly types: BaseType[]) {
+  constructor(public readonly types: Type[]) {
     super(
       types
         .map((type) => type.signature)
@@ -91,35 +69,49 @@ export class UnionType extends BaseType {
 }
 
 export class NamedType extends BaseType {
-  public readonly kind: "named" = "named";
+  public readonly kind: "named type" = "named type";
 
-  constructor(public readonly name: string, public readonly type: BaseType) {
+  constructor(public readonly name: string, public type: Type, public node: TypeNode) {
     super(name);
   }
 }
 
-export type Type = PrimitiveType | ArrayType | MapType | TupleType | FunctionType | UnionType | NamedType;
+export class NamedFunction extends BaseType {
+  public readonly kind: "named function" = "named function";
+
+  constructor(public readonly name: string, public type: FunctionType, public node: FunctionNode) {
+    super(name + type.signature);
+  }
+}
+
+export type Type = PrimitiveType | ArrayType | MapType | TupleType | FunctionType | UnionType | NamedType | NamedFunction;
 
 export const NothingType = new PrimitiveType("nothing");
 export const BooleanType = new PrimitiveType("boolean");
 export const NumberType = new PrimitiveType("number");
 export const StringType = new PrimitiveType("string");
+export const UnknownType = new PrimitiveType("$unknown");
 
 export class Types {
-  public readonly allTypes = new Map<String, Type>();
+  public readonly allTypes = new Map<String, PrimitiveType | NamedType | NamedFunction>();
 
   constructor() {
     this.add(NothingType);
     this.add(BooleanType);
     this.add(NumberType);
     this.add(StringType);
+    this.add(UnknownType);
   }
 
-  get(signature: string) {
-    return this.allTypes.get(signature);
+  get(name: string) {
+    return this.allTypes.get(name);
   }
 
-  add(type: Type) {
+  has(signature: string) {
+    return this.allTypes.has(signature);
+  }
+
+  add(type: PrimitiveType | NamedType | NamedFunction) {
     if (this.allTypes.has(type.signature)) {
       throw new Error(`Internal compiler error: Type ${type.kind} -> ${type.signature} already exists`);
     }

@@ -5,7 +5,7 @@ export abstract class Token {
   constructor(
     public readonly start: number,
     public readonly end: number,
-    public readonly value: number | string,
+    public readonly value: string,
     public readonly source: Source,
     public readonly comments: CommentToken[] = []
   ) {}
@@ -13,7 +13,11 @@ export abstract class Token {
 
 export class NothingToken extends Token {}
 export class BoolToken extends Token {}
-export class NumberToken extends Token {}
+export class NumberToken extends Token {
+  constructor(start: number, end: number, public readonly numberValue: number, source: Source, comments: CommentToken[]) {
+    super(start, end, numberValue.toString(), source, comments);
+  }
+}
 export class StringToken extends Token {}
 export class IdentifierToken extends Token {}
 export class KeywordToken extends Token {}

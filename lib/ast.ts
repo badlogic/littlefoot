@@ -1,5 +1,5 @@
 import { BoolToken, IdentifierToken, NothingToken, NumberToken, OperatorToken, StringToken, Token } from "./tokenizer";
-import { Type } from "./types";
+import { Type, UnknownType } from "./types";
 
 export type AstNode = NameAndTypeNode | TypeSpecifierNode | TopLevelNode;
 
@@ -39,7 +39,7 @@ export type ExpressionNode =
   | MethodCallNode;
 
 export abstract class BaseAstNode {
-  public type: Type | null = null;
+  public type: Type = UnknownType;
 
   constructor(public readonly firstToken: Token, public readonly lastToken: Token) {}
 
@@ -62,14 +62,14 @@ export class NamedTypeNode extends BaseAstNode {
 export class ArrayTypeNode extends BaseAstNode {
   public readonly kind: "array type" = "array type";
 
-  constructor(openingBracket: OperatorToken, public readonly elementTypes: TypeSpecifierNode, closingBracket: OperatorToken) {
+  constructor(openingBracket: OperatorToken, public readonly elementType: TypeSpecifierNode, closingBracket: OperatorToken) {
     super(openingBracket, closingBracket);
   }
 }
 
 export class MapTypeNode extends BaseAstNode {
   public readonly kind: "map type" = "map type";
-  constructor(openingCurly: OperatorToken, public readonly valueTypes: TypeSpecifierNode, closingCurly: OperatorToken) {
+  constructor(openingCurly: OperatorToken, public readonly valueType: TypeSpecifierNode, closingCurly: OperatorToken) {
     super(openingCurly, closingCurly);
   }
 }
@@ -121,7 +121,7 @@ export class FunctionNode extends BaseAstNode {
   public readonly kind: "function declaration" = "function declaration";
   constructor(
     firstToken: Token,
-    public readonly name: IdentifierToken | null,
+    public readonly name: IdentifierToken,
     public readonly parameters: NameAndTypeNode[],
     public returnType: TypeSpecifierNode | null,
     public readonly code: StatementNode[],
@@ -293,7 +293,7 @@ export class ArrayLiteralNode extends BaseAstNode {
 
 export class MapLiteralNode extends BaseAstNode {
   public readonly kind: "map literal" = "map literal";
-  constructor(firstToken: Token, public readonly keys: StringToken[], values: ExpressionNode[], lastToken: Token) {
+  constructor(firstToken: Token, public readonly keys: StringToken[], public readonly values: ExpressionNode[], lastToken: Token) {
     super(firstToken, lastToken);
   }
 }

@@ -1,9 +1,9 @@
-// @ts-ignore
-import example from "../tests/example.lf";
 import { parse, Source } from "../lib";
-import { Editor } from "./editor";
 import { checkTypes } from "../lib/typechecker";
 import { Types } from "../lib/types";
+// @ts-ignore
+import example from "../tests/example.lf";
+import { Editor } from "./editor";
 
 const editorContainer = document.querySelector("#editor") as HTMLTextAreaElement;
 const output = document.querySelector("#output") as HTMLDivElement;
