@@ -1,7 +1,17 @@
 import { FunctionLiteralNode, FunctionNode, TypeNode } from "./ast";
 
 export abstract class BaseType {
+  private _resolvedSignature: string | null = null;
+
   constructor(public readonly signature: string) {}
+
+  get resolvedSignature() {
+    if (!this._resolvedSignature) {
+      this._resolvedSignature = this.resolveSignature();
+    }
+    return this._resolvedSignature;
+  }
+  protected abstract resolveSignature(): string;
 }
 
 export class NameAndType {
@@ -14,6 +24,10 @@ export class PrimitiveType extends BaseType {
   constructor(public readonly name: string) {
     super(name);
   }
+
+  protected resolveSignature(): string {
+    return this.name;
+  }
 }
 
 export class ArrayType extends BaseType {
@@ -21,6 +35,10 @@ export class ArrayType extends BaseType {
 
   constructor(public readonly elementType: Type) {
     super("[" + elementType.signature + "]");
+  }
+
+  protected resolveSignature(): string {
+    return "[" + this.elementType.resolvedSignature + "]";
   }
 }
 
@@ -30,10 +48,14 @@ export class MapType extends BaseType {
   constructor(public readonly valueType: Type) {
     super("{" + valueType.signature + "}");
   }
+
+  protected resolveSignature(): string {
+    return "[" + this.valueType.resolvedSignature + "]";
+  }
 }
 
-export class TupleType extends BaseType {
-  public readonly kind: "tuple" = "tuple";
+export class RecordType extends BaseType {
+  public readonly kind: "record" = "record";
 
   constructor(public readonly fields: NameAndType[]) {
     super(
@@ -45,6 +67,17 @@ export class TupleType extends BaseType {
         ">"
     );
   }
+
+  protected resolveSignature(): string {
+    return (
+      "<" +
+      this.fields
+        .map((field) => field.name + ":" + field.type.resolvedSignature)
+        .sort()
+        .join(",") +
+      ">"
+    );
+  }
 }
 
 export class FunctionType extends BaseType {
@@ -52,6 +85,10 @@ export class FunctionType extends BaseType {
 
   constructor(public readonly parameters: NameAndType[], public returnType: Type) {
     super("(" + parameters.map((param) => param.type.signature).join(",") + "):" + returnType.signature);
+  }
+
+  protected resolveSignature(): string {
+    return "(" + this.parameters.map((param) => param.type.resolvedSignature).join(",") + "):" + this.returnType.resolvedSignature;
   }
 }
 
@@ -66,6 +103,13 @@ export class UnionType extends BaseType {
         .join("|")
     );
   }
+
+  protected resolveSignature(): string {
+    return this.types
+      .map((type) => type.resolvedSignature)
+      .sort()
+      .join("|");
+  }
 }
 
 export class NamedType extends BaseType {
@@ -73,6 +117,10 @@ export class NamedType extends BaseType {
 
   constructor(public readonly name: string, public type: Type, public node: TypeNode) {
     super(name);
+  }
+
+  protected resolveSignature(): string {
+    return this.type.resolvedSignature;
   }
 }
 
@@ -82,15 +130,20 @@ export class NamedFunction extends BaseType {
   constructor(public readonly name: string, public type: FunctionType, public node: FunctionNode) {
     super(name + type.signature);
   }
+
+  protected resolveSignature(): string {
+    return this.type.resolvedSignature;
+  }
 }
 
-export type Type = PrimitiveType | ArrayType | MapType | TupleType | FunctionType | UnionType | NamedType | NamedFunction;
+export type Type = PrimitiveType | ArrayType | MapType | RecordType | FunctionType | UnionType | NamedType | NamedFunction;
 
 export const NothingType = new PrimitiveType("nothing");
 export const BooleanType = new PrimitiveType("boolean");
 export const NumberType = new PrimitiveType("number");
 export const StringType = new PrimitiveType("string");
 export const UnknownType = new PrimitiveType("$unknown");
+export const ResolvingTypeMarker = new PrimitiveType("$resolving");
 
 function assertNever(x: never) {
   throw new Error("Unexpected object: " + x);
@@ -113,7 +166,7 @@ export function traverseType(type: Type, callback: (type: Type) => boolean) {
     case "map":
       traverseType(type.valueType, callback);
       break;
-    case "tuple":
+    case "record":
       for (const field of type.fields) {
         traverseType(field.type, callback);
       }

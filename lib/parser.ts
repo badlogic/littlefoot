@@ -1,13 +1,24 @@
 import { LittleFootError } from "./error";
-import { tokenize, TokenStream, IdentifierToken, StringToken, NumberToken, NothingToken, TupleOpeningToken, Token, OperatorToken } from "./tokenizer";
+import {
+  tokenize,
+  TokenStream,
+  IdentifierToken,
+  StringToken,
+  NumberToken,
+  NothingToken,
+  RecordOpeningToken,
+  Token,
+  OperatorToken,
+} from "./tokenizer";
 // prettier-ignore
-import { ArrayLiteralNode, ArrayTypeNode, BinaryOperatorNode, BooleanLiteralNode, DoNode, ExpressionNode, ForEachNode, ForNode, FunctionCallNode, FunctionLiteralNode, FunctionNode, FunctionTypeNode, IfNode, IsOperatorNode, MapLiteralNode, MapOrArrayAccessNode, MapTypeNode, MemberAccessNode, MethodCallNode, NameAndTypeNode, NothingLiteralNode, NumberLiteralNode, StatementNode, StringLiteralNode, TernaryOperatorNode, TypeSpecifierNode, UnaryOperatorNode, VariableAccessNode, VariableNode, WhileNode, TupleTypeNode, TupleLiteralNode, ContinueNode, BreakNode, ReturnNode, TypeNode, NamedTypeNode as TypeNameNode, AstNode, MixinTypeNode, UnionTypeNode } from "./ast";
+import { ArrayLiteralNode, ArrayTypeNode, BinaryOperatorNode, BooleanLiteralNode, DoNode, ExpressionNode, ForEachNode, ForNode, FunctionCallNode, FunctionLiteralNode, FunctionNode, FunctionTypeNode, IfNode, IsOperatorNode, MapLiteralNode, MapOrArrayAccessNode, MapTypeNode, MemberAccessNode, MethodCallNode, NameAndTypeNode, NothingLiteralNode, NumberLiteralNode, StatementNode, StringLiteralNode, TernaryOperatorNode, TypeSpecifierNode, UnaryOperatorNode, VariableAccessNode, VariableNode, WhileNode, RecordTypeNode, RecordLiteralNode, ContinueNode, BreakNode, ReturnNode, TypeNode, TypeReferenceNode as TypeNameNode, AstNode, MixinTypeNode, UnionTypeNode } from "./ast";
 import { Source } from "./source";
+import { CompilerContext } from "./compiler";
 
-export function parse(source: Source) {
-  let ast: AstNode[] = [];
-  const { tokens, errors } = tokenize(source);
-  if (errors.length > 0) return { ast, errors };
+export function parse(source: Source, errors: LittleFootError[]) {
+  const ast: AstNode[] = [];
+  const tokens = tokenize(source, errors);
+  if (errors.length > 0) return ast;
 
   const stream = new TokenStream(source, tokens);
 
@@ -29,7 +40,7 @@ export function parse(source: Source) {
     if (e instanceof LittleFootError) errors.push(e);
     else errors.push(new LittleFootError(0, 1, source, "Internal error: " + (e as any).message + "\n" + (e as any).stack));
   } finally {
-    return { ast, errors };
+    return ast;
   }
 }
 
@@ -75,15 +86,15 @@ function parseTypeSpecifier(stream: TokenStream) {
       types.push(new ArrayTypeNode(stream.expectValue("["), parseTypeSpecifier(stream), stream.expectValue("]")));
     } else if (stream.matchValue("{")) {
       types.push(new MapTypeNode(stream.expectValue("{"), parseTypeSpecifier(stream), stream.expectValue("}")));
-    } else if (stream.matchType(TupleOpeningToken)) {
-      const firstToken = stream.expectType(TupleOpeningToken);
+    } else if (stream.matchType(RecordOpeningToken)) {
+      const firstToken = stream.expectType(RecordOpeningToken);
       const fields = [];
       while (stream.hasMore() && !stream.matchValue(">")) {
         fields.push(parseNameAndType(stream));
         if (!stream.matchValue(">")) stream.expectValue(",");
       }
       const lastToken = stream.expectValue(">");
-      types.push(new TupleTypeNode(firstToken, fields, lastToken));
+      types.push(new RecordTypeNode(firstToken, fields, lastToken));
     } else if (stream.matchValue("(")) {
       const { openingParanthesis, parameters, closingParanthesis, returnType } = parseFunctionSignature(stream);
       types.push(new FunctionTypeNode(openingParanthesis, parameters, returnType, returnType ? returnType.lastToken : closingParanthesis));
@@ -278,9 +289,9 @@ function parseFor(stream: TokenStream) {
   }
 }
 
-export type ExpressionContext = { inTuple: boolean; inParans: boolean };
+export type ExpressionContext = { inRecord: boolean; inParans: boolean };
 
-function parseExpression(stream: TokenStream, context: ExpressionContext = { inTuple: false, inParans: false }): ExpressionNode {
+function parseExpression(stream: TokenStream, context: ExpressionContext = { inRecord: false, inParans: false }): ExpressionNode {
   return parseTernaryOperator(stream, context);
 }
 
@@ -303,7 +314,7 @@ function parseBinaryOperator(stream: TokenStream, level: number, context: Expres
   let leftExpression =
     nextLevel == binaryOperatorPrecedence.length ? parseUnaryOperator(stream, context) : parseBinaryOperator(stream, nextLevel, context);
   let operators = binaryOperatorPrecedence[level];
-  if (context.inTuple && !context.inParans) operators = operators.filter((op) => op != ">");
+  if (context.inRecord && !context.inParans) operators = operators.filter((op) => op != ">");
   while (stream.hasMore() && stream.matchValues(operators, false)) {
     const operator = stream.next();
     if (operator.value == "is") {
@@ -365,22 +376,22 @@ function parseAccessOrCallOrLiteral(stream: TokenStream) {
     }
     const lastToken = stream.expectValue("]");
     return new ArrayLiteralNode(firstToken, elements, lastToken);
-  } else if (stream.matchType(TupleOpeningToken)) {
-    const firstToken = stream.expectType(TupleOpeningToken);
+  } else if (stream.matchType(RecordOpeningToken)) {
+    const firstToken = stream.expectType(RecordOpeningToken);
     const fieldNames: IdentifierToken[] = [];
     const fieldValues: ExpressionNode[] = [];
     while (stream.hasMore()) {
       if (stream.matchValue(">")) break;
       const name = stream.expectType(IdentifierToken);
       stream.expectValue(":");
-      const value = parseExpression(stream, { inTuple: true, inParans: false });
+      const value = parseExpression(stream, { inRecord: true, inParans: false });
       fieldNames.push(name);
       fieldValues.push(value);
       if (stream.matchValue(">")) break;
       stream.expectValue(",");
     }
     const lastToken = stream.expectValue(">");
-    return new TupleLiteralNode(firstToken, fieldNames, fieldValues, lastToken);
+    return new RecordLiteralNode(firstToken, fieldNames, fieldValues, lastToken);
   } else if (stream.matchValue("func")) {
     return parseFunction(stream, false) as FunctionLiteralNode;
   } else if (stream.matchType(StringToken)) {

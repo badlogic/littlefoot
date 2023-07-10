@@ -1,75 +1,110 @@
 import * as fs from "fs";
 import { Source, parse } from "../lib";
 import { checkTypes } from "../lib/typechecker";
-import { ArrayType, MapType, NameAndType, NamedType, NothingType, NumberType, StringType, TupleType, Types, UnionType } from "../lib/types";
+import { ArrayType, MapType, NameAndType, NamedType, NothingType, NumberType, StringType, RecordType, Types, UnionType } from "../lib/types";
+import { compile } from "../lib/compiler";
 
 describe("Typechecker tests", () => {
-  it("Should error if tuples of mixin share field names", () => {
-    const { ast, errors } = parse(
-      new Source(
-        "source.lf",
+  it("Should infer type from initializer", () => {
+    const { modules, errors } = compile(
+      "source.lf",
+      (path) =>
+        new Source(
+          "source.lf",
+          `
+          var a = nothing
+          var b = true
+          var c = 1.123
+          var d = "Hello"
         `
+        )
+    );
+    expect(errors.length).toBe(0);
+  });
+
+  it("Should error if records of mixin share field names", () => {
+    const { errors } = compile(
+      "source.lf",
+      (path) =>
+        new Source(
+          "source.lf",
+          `
           type a = <x: number>
           type b = a + <y: number> + <x: string>
         `
-      )
+        )
     );
-
-    const types = new Types();
-    checkTypes(ast, errors, types);
     expect(errors.length).toBe(1);
   });
 
-  it("Should error if not all types of a mixin are tuples", () => {
-    const { ast, errors } = parse(
-      new Source(
-        "source.lf",
+  it("Should type check complex types", () => {
+    const { errors } = compile(
+      "source.lf",
+      (path) =>
+        new Source(
+          "source.lf",
+          `
+          type shapes = rectangle | circle | colored + <width: number>
+          type color = <r: number, g: number, b: number>
+          type colored = <color: color>
+          type rectangle = colored + <width: number, height: number> # mixins!
+          type circle = colored + <radius: number>
         `
+        )
+    );
+    expect(errors.length).toBe(0);
+  });
+
+  it("Should error if not all types of a mixin are records", () => {
+    const { errors } = compile(
+      "source.lf",
+      (path) =>
+        new Source(
+          "source.lf",
+          `
           type a = <x: number>
           type b = a + <y: number> + number
         `
-      )
+        )
     );
-
-    const types = new Types();
-    checkTypes(ast, errors, types);
     expect(errors.length).toBe(1);
+    expect(errors[0].message).toEqual("All types in a mixin must be a record.");
   });
 
   it("Should error on circular types", () => {
-    const { ast, errors } = parse(
-      new Source(
-        "source.lf",
-        `
+    const { errors } = compile(
+      "source.lf",
+      (path) =>
+        new Source(
+          "source.lf",
+          `
           type a = number | b
           type b = a | number
         `
-      )
+        )
     );
 
-    const types = new Types();
-    checkTypes(ast, errors, types);
-    expect(errors.length).toBe(2);
-    expect(errors[0].message == "Type 'a' circularly references itself.").toBe(true);
-    expect(errors[1].message == "Type 'b' circularly references itself.").toBe(true);
+    expect(errors.length).toBe(1);
+    expect(errors[0].message).toEqual("Type 'b' circularly references itself.");
   });
 
   it("Should validate simple named types", () => {
-    const { ast, errors } = parse(
-      new Source(
-        "source.lf",
+    const { types, errors } = compile(
+      "source.lf",
+      (path) =>
+        new Source(
+          "source.lf",
+          `
+          type a = nothing
+          type b = number
+          type c = [number]
+          type d = {number}
+          type e = <x: number, y: string>
+          type u = a | b | nothing
         `
-        type a = nothing
-        type b = number
-        type c = [number]
-        type d = {number}
-        type e = <x: number, y: string>
-        type u = a | b | nothing
-    `
-      )
+        )
     );
-    const types = new Types();
-    checkTypes(ast, errors, types);
+
     expect(errors.length).toBe(0);
 
     const a = types.get("a")! as NamedType;
@@ -90,7 +125,7 @@ describe("Typechecker tests", () => {
 
     const e = types.get("e")! as NamedType;
     expect(e.kind).toBe("named type");
-    expect(e.type).toStrictEqual(new TupleType([new NameAndType("x", NumberType), new NameAndType("y", StringType)]));
+    expect(e.type).toStrictEqual(new RecordType([new NameAndType("x", NumberType), new NameAndType("y", StringType)]));
 
     const u = types.get("u")! as NamedType;
     expect(u.kind).toBe("named type");
@@ -101,31 +136,33 @@ describe("Typechecker tests", () => {
   });
 
   it("Shouldn't allow usage of built-in type names for named types", () => {
-    const { ast, errors } = parse(
-      new Source(
-        "source.lf",
+    const { errors } = compile(
+      "source.lf",
+      (path) =>
+        new Source(
+          "source.lf",
+          `
+          type string = number
         `
-        type string = number
-    `
-      )
+        )
     );
-    const types = new Types();
-    checkTypes(ast, errors, types);
     expect(errors.length).toBe(1);
+    expect(errors[0].message).toEqual("Can not use 'string' as a type name, as a built-in type with that name exists.");
   });
 
   it("Shouldn't allow duplicate named types", () => {
-    const { ast, errors } = parse(
-      new Source(
-        "source.lf",
+    const { errors } = compile(
+      "source.lf",
+      (path) =>
+        new Source(
+          "source.lf",
+          `
+          type a = number
+          type a = number
         `
-        type a = number
-        type a = number
-    `
-      )
+        )
     );
-    const types = new Types();
-    checkTypes(ast, errors, types);
     expect(errors.length).toBe(1);
+    expect(errors[0].message).toEqual("Duplicate type 'a', first defined in source.lf:2");
   });
 });

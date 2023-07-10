@@ -23,8 +23,8 @@ export class IdentifierToken extends Token {}
 export class KeywordToken extends Token {}
 export class OperatorToken extends Token {}
 export class CommentToken extends Token {}
-export class TupleOpeningToken extends Token {}
-export class TupleClosingToken extends Token {}
+export class RecordOpeningToken extends Token {}
+export class RecordClosingToken extends Token {}
 
 type TokenConstructor<T extends Token> = abstract new (...args: any[]) => T;
 
@@ -92,10 +92,9 @@ export const operatorsList = [ "=", "!", "|", "&", "^", "==", "!=", ">", ">=", "
 const operatorStarts = new Set(operatorsList.map((operator) => operator.charAt(0)));
 const operators = new Set(operatorsList);
 
-export function tokenize(source: Source) {
+export function tokenize(source: Source, errors: LittleFootError[]) {
   const text = source.text;
-  let tokens: Token[] = [];
-  let errors: LittleFootError[] = [];
+  const tokens: Token[] = [];
   let comments = [];
   for (let i = 0, n = text.length; i < n; ) {
     const char = text.charAt(i);
@@ -166,7 +165,7 @@ export function tokenize(source: Source) {
         i++;
         if (i == n) {
           errors.push(new LittleFootError(start, i, source, `Source ended before hexadecimal number was complete.`));
-          return { tokens, errors };
+          return tokens;
         }
         while (i < n && isHexDigit(text.charAt(i))) {
           value += text.charAt(i);
@@ -174,7 +173,7 @@ export function tokenize(source: Source) {
         }
         if (value.length == 0) {
           errors.push(new LittleFootError(start, i, source, `Expected one or more hexadecimal digits.`));
-          return { tokens, errors };
+          return tokens;
         }
         tokens.push(new NumberToken(start, i, Number.parseInt(value, 16), source, comments));
         comments = [];
@@ -184,7 +183,7 @@ export function tokenize(source: Source) {
         i++;
         if (i == n) {
           errors.push(new LittleFootError(start, i, source, `Source ended before binary number was complete.`));
-          return { tokens, errors };
+          return tokens;
         }
         while (i < n && isBinaryDigit(text.charAt(i))) {
           value += text.charAt(i);
@@ -192,7 +191,7 @@ export function tokenize(source: Source) {
         }
         if (value.length == 0) {
           errors.push(new LittleFootError(start, i, source, `Expected one or more binary digits.`));
-          return { tokens, errors };
+          return tokens;
         }
         tokens.push(new NumberToken(start, i, Number.parseInt(value, 2), source, comments));
         comments = [];
@@ -234,7 +233,7 @@ export function tokenize(source: Source) {
         if (char == "\\") {
           if (i == n) {
             errors.push(new LittleFootError(start, i, source, `Source ends before string escape and string was closed.`));
-            return { tokens, errors };
+            return tokens;
           }
           const escaped = text.charAt(i++);
           if (escaped === "t") {
@@ -247,7 +246,7 @@ export function tokenize(source: Source) {
             value += '"';
           } else {
             errors.push(new LittleFootError(start, i, source, `Unknown string escape.`));
-            return { tokens, errors };
+            return tokens;
           }
         } else if (char == '"') {
           closed = true;
@@ -260,7 +259,7 @@ export function tokenize(source: Source) {
       }
       if (!closed) {
         errors.push(new LittleFootError(start, i, source, `String not closed.`));
-        return { tokens, errors };
+        return tokens;
       }
       continue;
     }
@@ -287,19 +286,19 @@ export function tokenize(source: Source) {
     }
 
     errors.push(new LittleFootError(i, i + 1, source, `Unknown token.`));
-    return { tokens, errors };
+    return tokens;
   }
 
   // Post process the tokens and find the pattern "< identifier :"
-  // rewrite the < operator token to be a tuple literal opening token.
+  // rewrite the < operator token to be a record literal opening token.
   for (let i = 0; i < tokens.length - 2; i++) {
     if (tokens[i].value == "<" && tokens[i + 1] instanceof IdentifierToken && tokens[i + 2].value == ":") {
       const token = tokens[i];
-      tokens[i] = new TupleOpeningToken(token.start, token.end, token.value + "|", token.source, token.comments);
+      tokens[i] = new RecordOpeningToken(token.start, token.end, token.value + "|", token.source, token.comments);
     }
   }
 
-  return { tokens, errors };
+  return tokens;
 }
 
 export class TokenStream {

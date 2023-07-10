@@ -51,16 +51,16 @@ for each key in map.keys do
 end
 var a = map.a
 
-var tuple = < a: 0, b: 2 >
-var tuple: <a: number, b: number> =  < a: 0, b: 2 > 2>
-tuple.a = 0
+var record = < a: 0, b: 2 >
+var record: <a: number, b: number> =  < a: 0, b: 2 > 2>
+record.a = 0
 
 type node = <
     children: [node] | nothing,
     value: number
 >
 
-# Auto-generate constructor function for named tuples?
+# Auto-generate constructor function for record?
 func node(children: [node] | nothing, value: number): node
     return <children: children, value: value>
 end
@@ -88,7 +88,7 @@ traverse(n)
 var n = node([], 1)
 n.traverse()
 
-# type aliased named tuples get an auto-generated constructor function
+# type aliased records get an auto-generated constructor function
 # e.g. func color(r: number, g: number, b: number) return <r: r, g: g, b: b> end
 type color = <r: number, g: number, b: number>
 func toString(color: color): string

@@ -1,6 +1,6 @@
-import { parse, Source } from "../lib";
-import { checkTypes } from "../lib/typechecker";
-import { Types } from "../lib/types";
+import { Source } from "../lib";
+import { traverseAst } from "../lib/ast";
+import { compile } from "../lib/compiler";
 // @ts-ignore
 import example from "../tests/example.lf";
 import { Editor } from "./editor";
@@ -10,7 +10,7 @@ const output = document.querySelector("#output") as HTMLDivElement;
 
 const editor = new Editor(editorContainer, (newText: string) => {
   localStorage.setItem("source", editor.value);
-  compile(editor.value);
+  compileText(editor.value);
 });
 
 const stored = localStorage.getItem("source");
@@ -18,28 +18,35 @@ if (stored) editor.value = stored;
 else {
   editor.value = example;
 }
-compile(editor.value);
+compileText(editor.value);
 
-function compile(value: string) {
+function compileText(value: string) {
   localStorage.setItem("source", value);
-  const sourceDoc = new Source("source", value);
-  const { ast, errors } = parse(sourceDoc);
-  const types = new Types();
-  checkTypes(ast, errors, types);
+  const { errors, modules } = compile("source.lf", () => new Source("source.lf", value));
 
   if (errors.length == 0) {
+    const ast = modules.get("source.lf")!.ast;
+    for (const node of ast) {
+      traverseAst(node, (n) => {
+        n.type.resolvedSignature;
+        return true;
+      });
+    }
     editor.highlightErrors([]);
     output.innerHTML = JSON.stringify(
       ast,
-      (key, value) => (key == "source" || key == "firstToken" || key == "lastToken" ? undefined : value),
+      (key, value) => (key == "source" || key == "firstToken" || key == "lastToken" || key == "node" ? undefined : value),
       2
-    ).replace(/\n/g, "<br>");
+    )
+      .replace(/</g, "&lt;")
+      .replace(/\n/g, "<br>");
   } else {
     editor.highlightErrors(errors);
-    output.innerHTML = errors
+    const html = errors
       .map((error) => error.toString())
       .reduce((prev, curr) => prev + curr)
-      .replace("<", "&lt;")
+      .replace(/</g, "&lt;")
       .replace(/\n/g, "<br>");
+    output.innerHTML = html;
   }
 }

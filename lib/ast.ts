@@ -3,7 +3,7 @@ import { Type, UnknownType } from "./types";
 
 export type AstNode = NameAndTypeNode | TypeSpecifierNode | TopLevelNode;
 
-export type TypeSpecifierNode = NamedTypeNode | ArrayTypeNode | MapTypeNode | FunctionTypeNode | TupleTypeNode | UnionTypeNode | MixinTypeNode;
+export type TypeSpecifierNode = TypeReferenceNode | ArrayTypeNode | MapTypeNode | FunctionTypeNode | RecordTypeNode | UnionTypeNode | MixinTypeNode;
 
 export type TopLevelNode = FunctionNode | TypeNode | StatementNode;
 
@@ -30,7 +30,7 @@ export type ExpressionNode =
   | NothingLiteralNode
   | ArrayLiteralNode
   | MapLiteralNode
-  | TupleLiteralNode
+  | RecordLiteralNode
   | FunctionLiteralNode
   | VariableAccessNode
   | MemberAccessNode
@@ -52,8 +52,8 @@ export abstract class BaseAstNode {
   }
 }
 
-export class NamedTypeNode extends BaseAstNode {
-  public readonly kind: "named type" = "named type";
+export class TypeReferenceNode extends BaseAstNode {
+  public readonly kind: "type reference" = "type reference";
   constructor(public readonly name: IdentifierToken) {
     super(name, name);
   }
@@ -81,8 +81,8 @@ export class FunctionTypeNode extends BaseAstNode {
   }
 }
 
-export class TupleTypeNode extends BaseAstNode {
-  public readonly kind: "tuple type" = "tuple type";
+export class RecordTypeNode extends BaseAstNode {
+  public readonly kind: "record type" = "record type";
   constructor(firstToken: Token, public readonly fields: NameAndTypeNode[], lastToken: Token) {
     super(firstToken, lastToken);
   }
@@ -215,7 +215,7 @@ export class BreakNode extends BaseAstNode {
 
 export class ReturnNode extends BaseAstNode {
   public readonly kind: "return" = "return";
-  constructor(firstToken: Token, expression: ExpressionNode | null) {
+  constructor(firstToken: Token, public readonly expression: ExpressionNode | null) {
     super(firstToken, expression ? expression.lastToken : firstToken);
   }
 }
@@ -298,8 +298,8 @@ export class MapLiteralNode extends BaseAstNode {
   }
 }
 
-export class TupleLiteralNode extends BaseAstNode {
-  public readonly kind: "tuple literal" = "tuple literal";
+export class RecordLiteralNode extends BaseAstNode {
+  public readonly kind: "record literal" = "record literal";
   constructor(firstToken: Token, public readonly fieldNames: IdentifierToken[], public readonly fieldValues: ExpressionNode[], lastToken: Token) {
     super(firstToken, lastToken);
   }
@@ -350,5 +350,178 @@ export class MethodCallNode extends BaseAstNode {
   public readonly kind: "method call" = "method call";
   constructor(public readonly target: ExpressionNode, public readonly args: ExpressionNode[], lastToken: Token) {
     super(target.firstToken, lastToken);
+  }
+}
+
+function assertNever(x: never) {
+  throw new Error("Unexpected object: " + x);
+}
+
+export function traverseAst(node: AstNode, callback: (node: AstNode) => boolean) {
+  if (!callback(node)) return;
+  switch (node.kind) {
+    case "nothing":
+      break;
+    case "string":
+      break;
+    case "number":
+      break;
+    case "boolean":
+      break;
+    case "name and type":
+      traverseAst(node.typeNode, callback);
+      break;
+    case "type reference":
+      break;
+    case "array type":
+      traverseAst(node.elementType, callback);
+      break;
+    case "map type":
+      traverseAst(node.valueType, callback);
+      break;
+    case "function type":
+      for (const param of node.parameters) {
+        traverseAst(param, callback);
+      }
+      if (node.returnType) traverseAst(node.returnType, callback);
+      break;
+    case "record type":
+      for (const field of node.fields) {
+        traverseAst(field, callback);
+      }
+      break;
+    case "union type":
+      for (const type of node.unionTypes) {
+        traverseAst(type, callback);
+      }
+      break;
+    case "mixin type":
+      for (const type of node.mixinTypes) {
+        traverseAst(type, callback);
+      }
+      break;
+    case "function declaration":
+      for (const param of node.parameters) {
+        traverseAst(param, callback);
+      }
+      if (node.returnType) traverseAst(node.returnType, callback);
+      for (const statement of node.code) {
+        traverseAst(statement, callback);
+      }
+      break;
+    case "type declaration":
+      traverseAst(node.typeNode, callback);
+      break;
+    case "variable declaration":
+      if (node.typeNode) traverseAst(node.typeNode, callback);
+      traverseAst(node.initializer, callback);
+      break;
+    case "if":
+      traverseAst(node.condition, callback);
+      for (const statement of node.trueBlock) {
+        traverseAst(statement, callback);
+      }
+      for (const elseIf of node.elseIfs) {
+        traverseAst(elseIf, callback);
+      }
+      for (const statement of node.falseBlock) {
+        traverseAst(statement, callback);
+      }
+      break;
+    case "while":
+      traverseAst(node.condition, callback);
+      for (const statement of node.block) {
+        traverseAst(statement, callback);
+      }
+      break;
+    case "for each":
+      traverseAst(node.array, callback);
+      for (const statement of node.block) {
+        traverseAst(statement, callback);
+      }
+      break;
+    case "for":
+      traverseAst(node.startExpression, callback);
+      traverseAst(node.endExpression, callback);
+      if (node.step) traverseAst(node.step, callback);
+      for (const statement of node.block) {
+        traverseAst(statement, callback);
+      }
+      break;
+    case "do":
+      for (const statement of node.block) {
+        traverseAst(statement, callback);
+      }
+      traverseAst(node.condition, callback);
+      break;
+    case "continue":
+      break;
+    case "break":
+      break;
+    case "return":
+      if (node.expression) traverseAst(node.expression, callback);
+      break;
+    case "ternary operator":
+      traverseAst(node.condition, callback);
+      traverseAst(node.trueExpression, callback);
+      traverseAst(node.falseExpression, callback);
+      break;
+    case "binary operator":
+      traverseAst(node.leftExpression, callback);
+      traverseAst(node.rightExpression, callback);
+      break;
+    case "unary operator":
+      traverseAst(node.expression, callback);
+      break;
+    case "is operator":
+      traverseAst(node.leftExpression, callback);
+      traverseAst(node.typeNode, callback);
+      break;
+    case "array literal":
+      for (const element of node.elements) {
+        traverseAst(element, callback);
+      }
+      break;
+    case "map literal":
+      for (let i = 0; i < node.values.length; i++) {
+        traverseAst(node.values[i], callback);
+      }
+      break;
+    case "record literal":
+      for (let i = 0; i < node.fieldValues.length; i++) {
+        traverseAst(node.fieldValues[i], callback);
+      }
+      break;
+    case "function literal":
+      for (const param of node.parameters) {
+        traverseAst(param, callback);
+      }
+      if (node.returnType) traverseAst(node.returnType, callback);
+      for (const statement of node.code) {
+        traverseAst(statement, callback);
+      }
+      break;
+    case "variable access":
+      break;
+    case "member access":
+      traverseAst(node.object, callback);
+      break;
+    case "map or array access":
+      traverseAst(node.target, callback);
+      traverseAst(node.keyOrIndex, callback);
+      break;
+    case "function call":
+      for (const arg of node.args) {
+        traverseAst(arg, callback);
+      }
+      break;
+    case "method call":
+      traverseAst(node.target, callback);
+      for (const arg of node.args) {
+        traverseAst(arg, callback);
+      }
+      break;
+    default:
+      assertNever(node);
   }
 }
