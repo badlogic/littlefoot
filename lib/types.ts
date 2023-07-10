@@ -92,6 +92,48 @@ export const NumberType = new PrimitiveType("number");
 export const StringType = new PrimitiveType("string");
 export const UnknownType = new PrimitiveType("$unknown");
 
+function assertNever(x: never) {
+  throw new Error("Unexpected object: " + x);
+}
+
+export function traverseType(type: Type, callback: (type: Type) => boolean) {
+  if (!callback(type)) return;
+  switch (type.kind) {
+    case "function":
+      for (const parameter of type.parameters) {
+        traverseType(parameter.type, callback);
+      }
+      traverseType(type.returnType, callback);
+      break;
+    case "primitive":
+      break;
+    case "array":
+      traverseType(type.elementType, callback);
+      break;
+    case "map":
+      traverseType(type.valueType, callback);
+      break;
+    case "tuple":
+      for (const field of type.fields) {
+        traverseType(field.type, callback);
+      }
+      break;
+    case "union":
+      for (const unionType of type.types) {
+        traverseType(unionType, callback);
+      }
+      break;
+    case "named type":
+      traverseType(type.type, callback);
+      break;
+    case "named function":
+      traverseType(type.type, callback);
+      break;
+    default:
+      assertNever(type);
+  }
+}
+
 export class Types {
   public readonly allTypes = new Map<String, PrimitiveType | NamedType | NamedFunction>();
 

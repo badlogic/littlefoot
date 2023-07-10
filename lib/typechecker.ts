@@ -1,4 +1,4 @@
-import { AstNode, TypeNode } from "./ast";
+import { AstNode, TypeNode, TypeSpecifierNode } from "./ast";
 import { LittleFootError } from "./error";
 import {
   ArrayType,
@@ -15,6 +15,7 @@ import {
   Types,
   UnionType,
   UnknownType,
+  traverseType,
 } from "./types";
 
 function assertNever(x: never) {
@@ -74,10 +75,24 @@ export function checkTypes(ast: AstNode[], errors: LittleFootError[], types: Typ
     }
   }
 
+  // Detect circular types
+  for (const type of namedTypes) {
+    traverseType((type.type as NamedType).type, (t) => {
+      if (t === type.type) {
+        errors.push(
+          new LittleFootError(type.name.start, type.name.end, type.firstToken.source, `Type '${type.name.value}' circularly references itself.`)
+        );
+        return false;
+      }
+      return true;
+    });
+  }
+  if (errors.length > 0) return;
+
   for (const node of ast) {
     // FIXME recover in case a statement or expression throws an error and type check the remainder of the AST if possible
     // This should work for errors within functions. For top-level statements, stop if a var declaration fails.
-    // checkNodeTypes(node, types);
+    checkNodeTypes(node, types);
   }
 }
 
@@ -135,11 +150,36 @@ export function checkNodeTypes(node: AstNode, types: Types) {
       break;
     }
     case "mixin type": {
+      const seenFields = new Map<String, TypeSpecifierNode>();
+      const fields = [];
       for (const type of node.mixinTypes) {
         checkNodeTypes(type, types);
+
+        // Make sure the mixin type is a (named) tuple
+        if (!((type.type.kind == "named type" && type.type.type.kind == "tuple") || type.type.kind == "tuple")) {
+          throw new LittleFootError(type.firstToken.start, type.lastToken.end, type.firstToken.source, `All types in a mixin must be a tuple.'`);
+        }
+
+        // Make sure the fields of the tuple are unique within the mixin
+        const tuple = type.type.kind == "named type" ? (type.type.type as TupleType) : (type.type as TupleType);
+        for (const field of tuple.fields) {
+          if (!seenFields.has(field.name)) {
+            seenFields.set(field.name, type);
+            fields.push(field);
+          } else {
+            const otherType = seenFields.get(field.name)!;
+            const previousType = otherType.firstToken.source.text.substring(otherType.firstToken.start, otherType.lastToken.end);
+            throw new LittleFootError(
+              type.start,
+              type.end,
+              type.firstToken.source,
+              `Field '${field.name}' of mixin type already defined in previous mixin type '${previousType}'.`
+            );
+          }
+        }
       }
-      // FIXME merge fields of mixins and generate a new TupleType
-      throw Error("not implemented");
+      node.type = new TupleType(fields);
+      break;
     }
     case "named type": {
       if (!types.has(node.name.value)) {
@@ -220,15 +260,23 @@ export function checkNodeTypes(node: AstNode, types: Types) {
     case "is operator":
       throw Error("not implemented");
     case "array literal":
+      throw Error("not implemented");
     case "map literal":
+      throw Error("not implemented");
     case "tuple literal":
+      throw Error("not implemented");
     case "function literal":
+      throw Error("not implemented");
     case "variable access":
+      throw Error("not implemented");
     case "member access":
+      throw Error("not implemented");
     case "map or array access":
+      throw Error("not implemented");
     case "function call":
+      throw Error("not implemented");
     case "method call":
-      break;
+      throw Error("not implemented");
     default:
       assertNever(node);
   }
