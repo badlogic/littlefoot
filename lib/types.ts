@@ -30,8 +30,8 @@ export class PrimitiveType extends BaseType {
   }
 }
 
-export class ArrayType extends BaseType {
-  public readonly kind: "array" = "array";
+export class ListType extends BaseType {
+  public readonly kind: "list" = "list";
 
   constructor(public readonly elementType: Type) {
     super("[" + elementType.signature + "]");
@@ -136,7 +136,7 @@ export class NamedFunction extends BaseType {
   }
 }
 
-export type Type = PrimitiveType | ArrayType | MapType | RecordType | FunctionType | UnionType | NamedType | NamedFunction;
+export type Type = PrimitiveType | ListType | MapType | RecordType | FunctionType | UnionType | NamedType | NamedFunction;
 
 export const NothingType = new PrimitiveType("nothing");
 export const BooleanType = new PrimitiveType("boolean");
@@ -160,7 +160,7 @@ export function traverseType(type: Type, callback: (type: Type) => boolean) {
       break;
     case "primitive":
       break;
-    case "array":
+    case "list":
       traverseType(type.elementType, callback);
       break;
     case "map":

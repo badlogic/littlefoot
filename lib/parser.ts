@@ -11,7 +11,7 @@ import {
   OperatorToken,
 } from "./tokenizer";
 // prettier-ignore
-import { ArrayLiteralNode, ArrayTypeNode, BinaryOperatorNode, BooleanLiteralNode, DoNode, ExpressionNode, ForEachNode, ForNode, FunctionCallNode, FunctionLiteralNode, FunctionNode, FunctionTypeNode, IfNode, IsOperatorNode, MapLiteralNode, MapOrArrayAccessNode, MapTypeNode, MemberAccessNode, MethodCallNode, NameAndTypeNode, NothingLiteralNode, NumberLiteralNode, StatementNode, StringLiteralNode, TernaryOperatorNode, TypeSpecifierNode, UnaryOperatorNode, VariableAccessNode, VariableNode, WhileNode, RecordTypeNode, RecordLiteralNode, ContinueNode, BreakNode, ReturnNode, TypeNode, TypeReferenceNode as TypeNameNode, AstNode, MixinTypeNode, UnionTypeNode } from "./ast";
+import { ListLiteralNode, ListTypeNode, BinaryOperatorNode, BooleanLiteralNode, DoNode, ExpressionNode, ForEachNode, ForNode, FunctionCallNode, FunctionLiteralNode, FunctionNode, FunctionTypeNode, IfNode, IsOperatorNode, MapLiteralNode, MapOrListAccessNode, MapTypeNode, MemberAccessNode, MethodCallNode, NameAndTypeNode, NothingLiteralNode, NumberLiteralNode, StatementNode, StringLiteralNode, TernaryOperatorNode, TypeSpecifierNode, UnaryOperatorNode, VariableAccessNode, VariableNode, WhileNode, RecordTypeNode, RecordLiteralNode, ContinueNode, BreakNode, ReturnNode, TypeNode, TypeReferenceNode as TypeNameNode, AstNode, MixinTypeNode, UnionTypeNode } from "./ast";
 import { Source } from "./source";
 import { CompilerContext } from "./compiler";
 
@@ -83,7 +83,7 @@ function parseTypeSpecifier(stream: TokenStream) {
     if (stream.matchType(IdentifierToken) || stream.matchType(NothingToken)) {
       types.push(new TypeNameNode(stream.next()));
     } else if (stream.matchValue("[")) {
-      types.push(new ArrayTypeNode(stream.expectValue("["), parseTypeSpecifier(stream), stream.expectValue("]")));
+      types.push(new ListTypeNode(stream.expectValue("["), parseTypeSpecifier(stream), stream.expectValue("]")));
     } else if (stream.matchValue("{")) {
       types.push(new MapTypeNode(stream.expectValue("{"), parseTypeSpecifier(stream), stream.expectValue("}")));
     } else if (stream.matchType(RecordOpeningToken)) {
@@ -261,14 +261,14 @@ function parseFor(stream: TokenStream) {
   if (stream.matchValue("each", true)) {
     const identifier = stream.expectType(IdentifierToken);
     stream.expectValue("in");
-    const array = parseExpression(stream);
+    const list = parseExpression(stream);
     stream.expectValue("do");
     const block = [];
     while (stream.hasMore() && !stream.matchValue("end")) {
       block.push(parseStatement(stream));
     }
     const lastToken = stream.expectValue("end");
-    return new ForEachNode(firstToken, identifier, array, block, lastToken);
+    return new ForEachNode(firstToken, identifier, list, block, lastToken);
   } else {
     const identifier = stream.expectType(IdentifierToken);
     stream.expectValue("from");
@@ -375,7 +375,7 @@ function parseAccessOrCallOrLiteral(stream: TokenStream) {
       stream.expectValue(",");
     }
     const lastToken = stream.expectValue("]");
-    return new ArrayLiteralNode(firstToken, elements, lastToken);
+    return new ListLiteralNode(firstToken, elements, lastToken);
   } else if (stream.matchType(RecordOpeningToken)) {
     const firstToken = stream.expectType(RecordOpeningToken);
     const fieldNames: IdentifierToken[] = [];
@@ -411,14 +411,14 @@ function parseAccessOrCallOrLiteral(stream: TokenStream) {
         token.start,
         token.end,
         stream.source,
-        `Expected a string, number, boolean, variable, field, map, array, function or method call, but got ${token.value}.`
+        `Expected a string, number, boolean, variable, field, map, list, function or method call, but got ${token.value}.`
       );
     } else {
       throw new LittleFootError(
         stream.source.text.length,
         stream.source.text.length,
         stream.source,
-        "Expected a string, number, boolean, variable, field, map, array, function or method call, but reached end of file."
+        "Expected a string, number, boolean, variable, field, map, list, function or method call, but reached end of file."
       );
     }
   }
@@ -431,7 +431,7 @@ function parseAccessOrCall(stream: TokenStream) {
       const openingParanthesis = stream.expectValue("(");
       const args = parseArguments(stream);
       const closingParanthesis = stream.expectValue(")");
-      if (result instanceof VariableAccessNode || result instanceof MapOrArrayAccessNode) {
+      if (result instanceof VariableAccessNode || result instanceof MapOrListAccessNode) {
         result = new FunctionCallNode(result, args, closingParanthesis);
       } else if (result instanceof MemberAccessNode) {
         result = new MethodCallNode(result, args, closingParanthesis);
@@ -442,7 +442,7 @@ function parseAccessOrCall(stream: TokenStream) {
       const openingBracket = stream.expectValue("[");
       const keyOrIndex = parseExpression(stream);
       const lastToken = stream.expectValue("]");
-      result = new MapOrArrayAccessNode(result, keyOrIndex, lastToken);
+      result = new MapOrListAccessNode(result, keyOrIndex, lastToken);
     } else if (stream.matchValue(".", true)) {
       const identifier = stream.expectType(IdentifierToken);
       result = new MemberAccessNode(result, identifier);

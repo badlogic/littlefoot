@@ -3,7 +3,7 @@ import { Type, UnknownType } from "./types";
 
 export type AstNode = NameAndTypeNode | TypeSpecifierNode | TopLevelNode;
 
-export type TypeSpecifierNode = TypeReferenceNode | ArrayTypeNode | MapTypeNode | FunctionTypeNode | RecordTypeNode | UnionTypeNode | MixinTypeNode;
+export type TypeSpecifierNode = TypeReferenceNode | ListTypeNode | MapTypeNode | FunctionTypeNode | RecordTypeNode | UnionTypeNode | MixinTypeNode;
 
 export type TopLevelNode = FunctionNode | TypeNode | StatementNode;
 
@@ -28,13 +28,13 @@ export type ExpressionNode =
   | NumberLiteralNode
   | BooleanLiteralNode
   | NothingLiteralNode
-  | ArrayLiteralNode
+  | ListLiteralNode
   | MapLiteralNode
   | RecordLiteralNode
   | FunctionLiteralNode
   | VariableAccessNode
   | MemberAccessNode
-  | MapOrArrayAccessNode
+  | MapOrListAccessNode
   | FunctionCallNode
   | MethodCallNode;
 
@@ -59,8 +59,8 @@ export class TypeReferenceNode extends BaseAstNode {
   }
 }
 
-export class ArrayTypeNode extends BaseAstNode {
-  public readonly kind: "array type" = "array type";
+export class ListTypeNode extends BaseAstNode {
+  public readonly kind: "list type" = "list type";
 
   constructor(openingBracket: OperatorToken, public readonly elementType: TypeSpecifierNode, closingBracket: OperatorToken) {
     super(openingBracket, closingBracket);
@@ -184,7 +184,7 @@ export class ForEachNode extends BaseAstNode {
   constructor(
     firstToken: Token,
     public readonly identifier: IdentifierToken,
-    public readonly array: ExpressionNode,
+    public readonly list: ExpressionNode,
     public readonly block: StatementNode[],
     lastToken: Token
   ) {
@@ -284,8 +284,8 @@ export class NothingLiteralNode extends BaseAstNode {
   }
 }
 
-export class ArrayLiteralNode extends BaseAstNode {
-  public readonly kind: "array literal" = "array literal";
+export class ListLiteralNode extends BaseAstNode {
+  public readonly kind: "list literal" = "list literal";
   constructor(firstToken: Token, public readonly elements: ExpressionNode[], lastToken: Token) {
     super(firstToken, lastToken);
   }
@@ -332,8 +332,8 @@ export class MemberAccessNode extends BaseAstNode {
   }
 }
 
-export class MapOrArrayAccessNode extends BaseAstNode {
-  public readonly kind: "map or array access" = "map or array access";
+export class MapOrListAccessNode extends BaseAstNode {
+  public readonly kind: "map or list access" = "map or list access";
   constructor(public readonly target: ExpressionNode, public readonly keyOrIndex: ExpressionNode, lastToken: Token) {
     super(target.firstToken, lastToken);
   }
@@ -373,7 +373,7 @@ export function traverseAst(node: AstNode, callback: (node: AstNode) => boolean)
       break;
     case "type reference":
       break;
-    case "array type":
+    case "list type":
       traverseAst(node.elementType, callback);
       break;
     case "map type":
@@ -435,7 +435,7 @@ export function traverseAst(node: AstNode, callback: (node: AstNode) => boolean)
       }
       break;
     case "for each":
-      traverseAst(node.array, callback);
+      traverseAst(node.list, callback);
       for (const statement of node.block) {
         traverseAst(statement, callback);
       }
@@ -477,7 +477,7 @@ export function traverseAst(node: AstNode, callback: (node: AstNode) => boolean)
       traverseAst(node.leftExpression, callback);
       traverseAst(node.typeNode, callback);
       break;
-    case "array literal":
+    case "list literal":
       for (const element of node.elements) {
         traverseAst(element, callback);
       }
@@ -506,7 +506,7 @@ export function traverseAst(node: AstNode, callback: (node: AstNode) => boolean)
     case "member access":
       traverseAst(node.object, callback);
       break;
-    case "map or array access":
+    case "map or list access":
       traverseAst(node.target, callback);
       traverseAst(node.keyOrIndex, callback);
       break;

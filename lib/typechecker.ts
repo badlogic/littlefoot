@@ -2,7 +2,7 @@ import { AstNode, TypeNode, TypeSpecifierNode } from "./ast";
 import { CompilerContext } from "./compiler";
 import { LittleFootError } from "./error";
 import {
-  ArrayType,
+  ListType,
   BooleanType,
   FunctionType,
   MapType,
@@ -114,9 +114,9 @@ export function checkNodeTypes(node: AstNode, context: CompilerContext) {
       node.type = StringType;
       break;
     }
-    case "array type": {
+    case "list type": {
       checkNodeTypes(node.elementType, context);
-      node.type = new ArrayType(node.elementType.type);
+      node.type = new ListType(node.elementType.type);
       break;
     }
     case "map type": {
@@ -291,7 +291,7 @@ export function checkNodeTypes(node: AstNode, context: CompilerContext) {
       throw Error("not implemented");
     case "is operator":
       throw Error("not implemented");
-    case "array literal":
+    case "list literal":
       throw Error("not implemented");
     case "map literal":
       throw Error("not implemented");
@@ -303,7 +303,7 @@ export function checkNodeTypes(node: AstNode, context: CompilerContext) {
       throw Error("not implemented");
     case "member access":
       throw Error("not implemented");
-    case "map or array access":
+    case "map or list access":
       throw Error("not implemented");
     case "function call":
       throw Error("not implemented");

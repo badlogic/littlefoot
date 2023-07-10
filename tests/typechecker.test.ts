@@ -1,7 +1,7 @@
 import * as fs from "fs";
 import { Source, parse } from "../lib";
 import { checkTypes } from "../lib/typechecker";
-import { ArrayType, MapType, NameAndType, NamedType, NothingType, NumberType, StringType, RecordType, Types, UnionType } from "../lib/types";
+import { ListType, MapType, NameAndType, NamedType, NothingType, NumberType, StringType, RecordType, Types, UnionType } from "../lib/types";
 import { compile } from "../lib/compiler";
 
 describe("Typechecker tests", () => {
@@ -117,7 +117,7 @@ describe("Typechecker tests", () => {
 
     const c = types.get("c")! as NamedType;
     expect(c.kind).toBe("named type");
-    expect(c.type).toStrictEqual(new ArrayType(NumberType));
+    expect(c.type).toStrictEqual(new ListType(NumberType));
 
     const d = types.get("d")! as NamedType;
     expect(d.kind).toBe("named type");
