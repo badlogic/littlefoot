@@ -5,7 +5,7 @@ export class LittleFootError {
 
   toString() {
     const lines = this.location.source.indicesToLines(this.location.start, this.location.end);
-    let highlight = `${this.location.source.identifier}:${lines[0].index}: ${this.message}\n\n`;
+    let highlight = `${this.location.source.path}:${lines[0].index}: ${this.message}\n\n`;
     let index = lines[0].start;
     for (const line of lines) {
       const lineText = this.location.source.text.substring(line.start, line.end);

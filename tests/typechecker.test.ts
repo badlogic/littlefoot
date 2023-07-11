@@ -1,4 +1,4 @@
-import { Source } from "../lib";
+import { MemorySourceLoader, Source } from "../lib";
 import { compile } from "../lib/compiler";
 import { ListType, MapType, NameAndType, NamedType, NothingType, NumberType, RecordType, StringType, UnionType } from "../lib/types";
 
@@ -6,16 +6,15 @@ describe("Typechecker tests", () => {
   it("Should infer type from initializer", () => {
     const { modules, errors } = compile(
       "source.lf",
-      (path) =>
-        new Source(
-          "source.lf",
-          `
+      new MemorySourceLoader({
+        path: "source.lf",
+        text: `
           var a = nothing
           var b = true
           var c = 1.123
           var d = "Hello"
-        `
-        )
+        `,
+      })
     );
     expect(errors.length).toBe(0);
   });
@@ -23,14 +22,13 @@ describe("Typechecker tests", () => {
   it("Should error if records of mixin share field names", () => {
     const { errors } = compile(
       "source.lf",
-      (path) =>
-        new Source(
-          "source.lf",
-          `
+      new MemorySourceLoader({
+        path: "source.lf",
+        text: `
           type a = <x: number>
           type b = a + <y: number> + <x: string>
-        `
-        )
+        `,
+      })
     );
     expect(errors.length).toBe(1);
   });
@@ -38,17 +36,16 @@ describe("Typechecker tests", () => {
   it("Should type check complex types", () => {
     const { types, errors } = compile(
       "source.lf",
-      (path) =>
-        new Source(
-          "source.lf",
-          `
+      new MemorySourceLoader({
+        path: "source.lf",
+        text: `
           type shapes = rectangle | circle | colored + <width: number>
           type color = <r: number, g: number, b: number>
           type colored = <color: color>
           type rectangle = colored + <width: number, height: number> # mixins!
           type circle = colored + <radius: number>
-        `
-        )
+        `,
+      })
     );
 
     expect(errors.length).toBe(0);
@@ -100,14 +97,13 @@ describe("Typechecker tests", () => {
   it("Should error if not all types of a mixin are records", () => {
     const { errors } = compile(
       "source.lf",
-      (path) =>
-        new Source(
-          "source.lf",
-          `
+      new MemorySourceLoader({
+        path: "source.lf",
+        text: `
           type a = <x: number>
           type b = a + <y: number> + number
-        `
-        )
+        `,
+      })
     );
     expect(errors.length).toBe(1);
     expect(errors[0].message).toEqual("All types in a mixin must be a record.");
@@ -116,14 +112,13 @@ describe("Typechecker tests", () => {
   it("Should error on circular types", () => {
     const { errors } = compile(
       "source.lf",
-      (path) =>
-        new Source(
-          "source.lf",
-          `
+      new MemorySourceLoader({
+        path: "source.lf",
+        text: `
           type a = number | b
           type b = a | number
-        `
-        )
+        `,
+      })
     );
 
     expect(errors.length).toBe(1);
@@ -133,18 +128,17 @@ describe("Typechecker tests", () => {
   it("Should validate simple named types", () => {
     const { types, errors } = compile(
       "source.lf",
-      (path) =>
-        new Source(
-          "source.lf",
-          `
+      new MemorySourceLoader({
+        path: "source.lf",
+        text: `
           type a = nothing
           type b = number
           type c = [number]
           type d = {number}
           type e = <x: number, y: string>
           type u = a | b | nothing
-        `
-        )
+        `,
+      })
     );
 
     expect(errors.length).toBe(0);
@@ -180,13 +174,12 @@ describe("Typechecker tests", () => {
   it("Shouldn't allow usage of built-in type names for named types", () => {
     const { errors } = compile(
       "source.lf",
-      (path) =>
-        new Source(
-          "source.lf",
-          `
+      new MemorySourceLoader({
+        path: "source.lf",
+        text: `
           type string = number
-        `
-        )
+        `,
+      })
     );
     expect(errors.length).toBe(1);
     expect(errors[0].message).toEqual("Can not use 'string' as a type name, as a built-in type with that name exists.");
@@ -195,14 +188,13 @@ describe("Typechecker tests", () => {
   it("Shouldn't allow duplicate named types", () => {
     const { errors } = compile(
       "source.lf",
-      (path) =>
-        new Source(
-          "source.lf",
-          `
+      new MemorySourceLoader({
+        path: "source.lf",
+        text: `
           type a = number
           type a = number
-        `
-        )
+        `,
+      })
     );
     expect(errors.length).toBe(1);
     expect(errors[0].message).toEqual("Duplicate type 'a', first defined in source.lf:2");

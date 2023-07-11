@@ -2,7 +2,7 @@ import { LittleFootError } from "./error";
 // prettier-ignore
 import { tokenize, TokenStream, IdentifierToken, StringToken, NumberToken, NothingToken, RecordOpeningToken, OperatorToken } from "./tokenizer";
 // prettier-ignore
-import { ListLiteralNode, ListTypeNode, BinaryOperatorNode, BooleanLiteralNode, DoNode, ExpressionNode, ForEachNode, ForNode, FunctionCallNode, FunctionLiteralNode, FunctionNode, FunctionTypeNode, IfNode, IsOperatorNode, MapLiteralNode, MapOrListAccessNode, MapTypeNode, MemberAccessNode, MethodCallNode, NameAndTypeNode, NothingLiteralNode, NumberLiteralNode, StatementNode, StringLiteralNode, TernaryOperatorNode, TypeSpecifierNode, UnaryOperatorNode, VariableAccessNode, VariableNode, WhileNode, RecordTypeNode, RecordLiteralNode, ContinueNode, BreakNode, ReturnNode, TypeNode, TypeReferenceNode as TypeNameNode, AstNode, MixinTypeNode, UnionTypeNode } from "./ast";
+import { ListLiteralNode, ListTypeNode, BinaryOperatorNode, BooleanLiteralNode, DoNode, ExpressionNode, ForEachNode, ForNode, FunctionCallNode, FunctionLiteralNode, FunctionNode, FunctionTypeNode, IfNode, IsOperatorNode, MapLiteralNode, MapOrListAccessNode, MapTypeNode, MemberAccessNode, MethodCallNode, NameAndTypeNode, NothingLiteralNode, NumberLiteralNode, StatementNode, StringLiteralNode, TernaryOperatorNode, TypeSpecifierNode, UnaryOperatorNode, VariableAccessNode, VariableNode, WhileNode, RecordTypeNode, RecordLiteralNode, ContinueNode, BreakNode, ReturnNode, TypeNode, TypeReferenceNode as TypeNameNode, AstNode, MixinTypeNode, UnionTypeNode, ImportNode, ImportedNameNode } from "./ast";
 import { Source, SourceLocation } from "./source";
 
 export function parse(source: Source, errors: LittleFootError[]) {
@@ -13,6 +13,10 @@ export function parse(source: Source, errors: LittleFootError[]) {
   const stream = new TokenStream(source, tokens);
 
   try {
+    while (stream.matchValue("import")) {
+      ast.push(parseImport(stream));
+    }
+
     while (stream.hasMore()) {
       if (stream.matchValue("func")) {
         ast.push(parseFunction(stream, true) as FunctionNode);
@@ -32,6 +36,24 @@ export function parse(source: Source, errors: LittleFootError[]) {
   } finally {
     return ast;
   }
+}
+
+function parseImport(stream: TokenStream): ImportNode {
+  const firstToken = stream.expectValue("import");
+  const importedNames: ImportedNameNode[] = [];
+
+  if (stream.matchType(StringToken)) {
+  } else {
+    while (stream.matchType(IdentifierToken)) {
+      const name = stream.expectType(IdentifierToken);
+      const alias = stream.matchValue("as", true) ? stream.expectType(IdentifierToken) : null;
+      importedNames.push(new ImportedNameNode(name, alias));
+      stream.matchValue(",", true);
+    }
+    stream.expectValue("from");
+  }
+  const path = stream.expectType(StringToken);
+  return new ImportNode(firstToken, importedNames, path);
 }
 
 function parseStatement(stream: TokenStream): StatementNode {

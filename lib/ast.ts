@@ -2,7 +2,7 @@ import { SourceLocation } from "./source";
 import { BoolToken, IdentifierToken, NothingToken, NumberToken, OperatorToken, StringToken, Token } from "./tokenizer";
 import { Type, UnknownType } from "./types";
 
-export type AstNode = NameAndTypeNode | TypeSpecifierNode | TopLevelNode;
+export type AstNode = ImportNode | ImportedNameNode | NameAndTypeNode | TypeSpecifierNode | TopLevelNode;
 
 export type TypeSpecifierNode = TypeReferenceNode | ListTypeNode | MapTypeNode | FunctionTypeNode | RecordTypeNode | UnionTypeNode | MixinTypeNode;
 
@@ -112,6 +112,20 @@ export class NameAndTypeNode extends BaseAstNode {
   public readonly kind: "name and type" = "name and type";
   constructor(public readonly name: IdentifierToken, public readonly typeNode: TypeSpecifierNode) {
     super(SourceLocation.from(name.location, typeNode.location));
+  }
+}
+
+export class ImportedNameNode extends BaseAstNode {
+  public readonly kind: "imported name" = "imported name";
+  constructor(public readonly name: IdentifierToken, public readonly alias: IdentifierToken | null) {
+    super(SourceLocation.from(name.location, alias ? alias.location : name.location));
+  }
+}
+
+export class ImportNode extends BaseAstNode {
+  public readonly kind: "import" = "import";
+  constructor(firstToken: Token, public readonly importedNames: ImportedNameNode[], public readonly path: StringToken) {
+    super(SourceLocation.from(firstToken.location, path.location));
   }
 }
 
@@ -397,6 +411,13 @@ export function traverseAst(node: AstNode, callback: (node: AstNode) => boolean)
       for (const type of node.mixinTypes) {
         traverseAst(type, callback);
       }
+      break;
+    case "import":
+      for (const importedName of node.importedNames) {
+        traverseAst(importedName, callback);
+      }
+      break;
+    case "imported name":
       break;
     case "function declaration":
       for (const param of node.parameters) {

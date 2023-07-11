@@ -34,7 +34,7 @@ export function checkTypes(ast: AstNode[], context: CompilerContext) {
       errors.push(
         new LittleFootError(
           type.name.location,
-          `Duplicate type '${type.name.value}', first defined in ${otherType.location.source.identifier}:${otherTypeLineIndex}`
+          `Duplicate type '${type.name.value}', first defined in ${otherType.location.source.path}:${otherTypeLineIndex}`
         )
       );
     } else {
@@ -179,6 +179,12 @@ export function checkNodeTypes(node: AstNode, context: CompilerContext) {
       node.type = node.typeNode.type;
       break;
     }
+    case "import": {
+      break;
+    }
+    case "imported name": {
+      break; // no-op, handled in "import" case above
+    }
     case "function declaration": {
       for (const parameter of node.parameters) {
         checkNodeTypes(parameter, context);
@@ -197,7 +203,7 @@ export function checkNodeTypes(node: AstNode, context: CompilerContext) {
         const otherTypeLineIndex = otherType.location.source.indicesToLines(otherType.location.start, otherType.location.end)[0].index;
         throw new LittleFootError(
           node.name.location,
-          `Duplicate function '${node.name.value}', first defined in ${otherType.location.source.identifier}:${otherTypeLineIndex}`
+          `Duplicate function '${node.name.value}', first defined in ${otherType.location.source.path}:${otherTypeLineIndex}`
         );
       }
       context.types.add(namedFunction);

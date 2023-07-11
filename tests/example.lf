@@ -1,3 +1,6 @@
+import "std"
+import foo, bar as baf from "mymodule"
+
 # this is a comment
 # and another one
 var truthy = true

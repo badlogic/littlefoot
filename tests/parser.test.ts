@@ -1,13 +1,12 @@
-import * as fs from "fs";
-import { Source, parse } from "../lib";
-import { CompilerContext } from "../lib/compiler";
+import { parse } from "../lib";
 import { traverseAst } from "../lib/ast";
+import { CompilerContext } from "../lib/compiler";
+import { FileSourceLoader } from "./utils";
 
 describe("Parser tests", () => {
   it("Should parse the parser example file", () => {
-    const file = fs.readFileSync("tests/example.lf", { encoding: "utf-8" });
-    const context = new CompilerContext(() => null);
-    const ast = parse(new Source("source.lf", file), context.errors);
+    const context = new CompilerContext(new FileSourceLoader("./"));
+    const ast = parse(context.sourceLoader.load("tests/example.lf")!, context.errors);
     expect(context.errors.length).toBe(0);
     for (const node of ast) {
       traverseAst(node, (node) => {

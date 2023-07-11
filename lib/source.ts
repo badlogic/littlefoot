@@ -1,5 +1,4 @@
 import { LittleFootError } from "./error";
-import { Token } from "./tokenizer";
 
 export class Line {
   constructor(public readonly index: number, public readonly start: number, public end: number) {}
@@ -8,7 +7,7 @@ export class Line {
 export class Source {
   readonly lines: Line[];
 
-  constructor(public identifier: string, public text: string) {
+  constructor(public path: string, public text: string) {
     this.lines = [];
     let line: Line = new Line(1, 0, 0);
     let i = 0;
@@ -50,8 +49,25 @@ export class SourceLocation {
     if (loc1.source != loc2.source)
       throw new LittleFootError(
         loc1,
-        `Internal compiler error: constructing source location from two locations of different sources: ${loc1.source.identifier} != ${loc2.source.identifier}`
+        `Internal compiler error: constructing source location from two locations of different sources: ${loc1.source.path} != ${loc2.source.path}`
       );
     return new SourceLocation(loc1.source, loc1.start, loc2.end);
+  }
+}
+
+export interface SourceLoader {
+  load(path: string): Source | null;
+}
+
+export class MemorySourceLoader implements SourceLoader {
+  public readonly sources;
+  constructor(...sources: { path: string; text: string }[]) {
+    this.sources = sources;
+  }
+
+  load(path: string): Source | null {
+    const source = this.sources.find((source) => source.path == path);
+    if (!source) return null;
+    return new Source(path, source.text);
   }
 }

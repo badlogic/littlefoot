@@ -1,4 +1,4 @@
-import { Source } from "../lib";
+import { MemorySourceLoader, Source } from "../lib";
 import { traverseAst } from "../lib/ast";
 import { compile } from "../lib/compiler";
 // @ts-ignore
@@ -22,7 +22,7 @@ compileText(editor.value);
 
 function compileText(value: string) {
   localStorage.setItem("source", value);
-  const { errors, modules } = compile("source.lf", () => new Source("source.lf", value));
+  const { errors, modules } = compile("source.lf", new MemorySourceLoader({ path: "source.lf", text: value }));
 
   if (errors.length == 0) {
     const ast = modules.get("source.lf")!.ast;
