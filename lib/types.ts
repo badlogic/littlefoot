@@ -368,10 +368,3 @@ function isAssignableTo(a: Type, b: Type) {
     return false;
   }
 }
-
-type a = (a: number) => string | number;
-type b = (a: number) => string;
-
-type AreEqual<T, U> = T extends U ? (U extends T ? true : false) : false;
-
-type typesEqual = AreEqual<a, b>;
