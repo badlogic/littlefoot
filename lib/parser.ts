@@ -1,19 +1,9 @@
 import { LittleFootError } from "./error";
-import {
-  tokenize,
-  TokenStream,
-  IdentifierToken,
-  StringToken,
-  NumberToken,
-  NothingToken,
-  RecordOpeningToken,
-  Token,
-  OperatorToken,
-} from "./tokenizer";
+// prettier-ignore
+import { tokenize, TokenStream, IdentifierToken, StringToken, NumberToken, NothingToken, RecordOpeningToken, OperatorToken } from "./tokenizer";
 // prettier-ignore
 import { ListLiteralNode, ListTypeNode, BinaryOperatorNode, BooleanLiteralNode, DoNode, ExpressionNode, ForEachNode, ForNode, FunctionCallNode, FunctionLiteralNode, FunctionNode, FunctionTypeNode, IfNode, IsOperatorNode, MapLiteralNode, MapOrListAccessNode, MapTypeNode, MemberAccessNode, MethodCallNode, NameAndTypeNode, NothingLiteralNode, NumberLiteralNode, StatementNode, StringLiteralNode, TernaryOperatorNode, TypeSpecifierNode, UnaryOperatorNode, VariableAccessNode, VariableNode, WhileNode, RecordTypeNode, RecordLiteralNode, ContinueNode, BreakNode, ReturnNode, TypeNode, TypeReferenceNode as TypeNameNode, AstNode, MixinTypeNode, UnionTypeNode } from "./ast";
 import { Source } from "./source";
-import { CompilerContext } from "./compiler";
 
 export function parse(source: Source, errors: LittleFootError[]) {
   const ast: AstNode[] = [];

@@ -1,8 +1,6 @@
-import * as fs from "fs";
-import { Source, parse } from "../lib";
-import { checkTypes } from "../lib/typechecker";
-import { ListType, MapType, NameAndType, NamedType, NothingType, NumberType, StringType, RecordType, Types, UnionType } from "../lib/types";
+import { Source } from "../lib";
 import { compile } from "../lib/compiler";
+import { ListType, MapType, NameAndType, NamedType, NothingType, NumberType, RecordType, StringType, UnionType } from "../lib/types";
 
 describe("Typechecker tests", () => {
   it("Should infer type from initializer", () => {
@@ -38,7 +36,7 @@ describe("Typechecker tests", () => {
   });
 
   it("Should type check complex types", () => {
-    const { errors } = compile(
+    const { types, errors } = compile(
       "source.lf",
       (path) =>
         new Source(
@@ -52,7 +50,51 @@ describe("Typechecker tests", () => {
         `
         )
     );
+
     expect(errors.length).toBe(0);
+    expect(types.has("shapes")).toBe(true);
+    const shapes = types.get("shapes")! as NamedType;
+    expect(shapes.type.kind).toEqual("union");
+    const shapesType = shapes.type as UnionType;
+    expect(shapesType.types.length).toBe(3);
+    expect(shapesType.types[0]).toEqual(types.get("rectangle"));
+    expect(shapesType.types[1]).toEqual(types.get("circle"));
+    expect(shapesType.types[2]).toStrictEqual(
+      new RecordType([new NameAndType("color", types.get("color")!), new NameAndType("width", types.get("number")!)])
+    );
+    expect(types.has("color")).toBe(true);
+    const color = types.get("color")! as NamedType;
+    expect(color.type.kind == "record").toBe(true);
+    const colorType = color.type as RecordType;
+    expect(colorType).toStrictEqual(
+      new RecordType([
+        new NameAndType("r", types.get("number")!),
+        new NameAndType("g", types.get("number")!),
+        new NameAndType("b", types.get("number")!),
+      ])
+    );
+    expect(types.has("colored")).toBe(true);
+    const colored = types.get("colored") as NamedType;
+    expect(colored.type.kind == "record").toBe(true);
+    const coloredType = colored.type as RecordType;
+    expect(coloredType.fields.length).toBe(1);
+    expect(coloredType.fields[0].type == color).toBe(true);
+    expect(types.has("rectangle")).toBe(true);
+    const rectangle = types.get("rectangle")! as NamedType;
+    expect(rectangle.type.kind).toBe("record");
+    expect(rectangle.type.resolvedSignature).toStrictEqual(
+      new RecordType([
+        new NameAndType("color", types.get("color")!),
+        new NameAndType("width", types.get("number")!),
+        new NameAndType("height", types.get("number")!),
+      ]).resolvedSignature
+    );
+    expect(types.has("circle")).toBe(true);
+    const circle = types.get("circle")! as NamedType;
+    expect(circle.type.kind).toBe("record");
+    expect(circle.type.resolvedSignature).toStrictEqual(
+      new RecordType([new NameAndType("color", types.get("color")!), new NameAndType("radius", types.get("number")!)]).resolvedSignature
+    );
   });
 
   it("Should error if not all types of a mixin are records", () => {
