@@ -1,24 +1,8 @@
 import { AstNode, TypeNode, TypeSpecifierNode } from "./ast";
 import { CompilerContext } from "./compiler";
 import { LittleFootError } from "./error";
-import {
-  ListType,
-  BooleanType,
-  FunctionType,
-  MapType,
-  NameAndType,
-  NamedFunction,
-  NamedType,
-  NothingType,
-  NumberType,
-  StringType,
-  RecordType,
-  Types,
-  UnionType,
-  UnknownType,
-  traverseType,
-  ResolvingTypeMarker,
-} from "./types";
+// prettier-ignore
+import { BooleanType, FunctionType, ListType, MapType, NameAndType, NamedFunction, NamedType, NothingType, NumberType, RecordType, ResolvingTypeMarker, StringType, UnionType, UnknownType } from "./types";
 
 function assertNever(x: never) {
   throw new Error("Unexpected object: " + x);
