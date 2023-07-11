@@ -12,13 +12,14 @@ export class LittleFootError {
       highlight += lineText.replace("\n", "") + "\n";
       for (let i = 0; i < lineText.length; i++) {
         const char = lineText.charAt(i);
-        if (index >= this.location.start && index < this.location.end) {
+        if (index >= this.location.start && index < this.location.end && char != "\r" && char != "\n") {
           highlight += "^";
         } else {
           highlight += char == "\t" ? "\t" : " ";
         }
         index++;
       }
+      highlight += "\n";
     }
     return highlight;
   }
