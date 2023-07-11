@@ -1,4 +1,4 @@
-import { AstNode } from "./ast";
+import { AstNode, StatementNode } from "./ast";
 import { LittleFootError } from "./error";
 import { parse } from "./parser";
 import { Source } from "./source";
@@ -31,7 +31,9 @@ export function compile(path: string, loadSource: (path: string) => Source | nul
   const context = new CompilerContext(loadSource);
   const source = context.getSource(path);
   if (!source) throw new Error(`Couldn't find source with path '${path}'`);
-  const ast = parse(source, context.errors);
+  let ast = parse(source, context.errors);
+  // Extract all top level statements into a generated $main function.
+  let mainStatements = ast.filter((node) => (node as StatementNode).kind !== undefined);
   checkTypes(ast, context);
   context.modules.set(path, new Module(path, ast));
   return context;

@@ -1,19 +1,18 @@
-import { Source } from "./source";
-import { Token } from "./tokenizer";
+import { Source, SourceLocation } from "./source";
 
 export class LittleFootError {
-  constructor(public readonly start: number, public readonly end: number, public readonly source: Source, public readonly message: string) {}
+  constructor(public readonly location: SourceLocation, public readonly message: string) {}
 
   toString() {
-    const lines = this.source.indicesToLines(this.start, this.end);
-    let highlight = `${this.source.identifier}:${lines[0].index}: ${this.message}\n\n`;
+    const lines = this.location.source.indicesToLines(this.location.start, this.location.end);
+    let highlight = `${this.location.source.identifier}:${lines[0].index}: ${this.message}\n\n`;
     let index = lines[0].start;
     for (const line of lines) {
-      const lineText = this.source.text.substring(line.start, line.end);
+      const lineText = this.location.source.text.substring(line.start, line.end);
       highlight += lineText.replace("\n", "") + "\n";
       for (let i = 0; i < lineText.length; i++) {
         const char = lineText.charAt(i);
-        if (index >= this.start && index < this.end) {
+        if (index >= this.location.start && index < this.location.end) {
           highlight += "^";
         } else {
           highlight += char == "\t" ? "\t" : " ";
@@ -22,9 +21,5 @@ export class LittleFootError {
       }
     }
     return highlight;
-  }
-
-  static fromTokens(tokens: Token[], message: string) {
-    return new LittleFootError(tokens[0].start, tokens[tokens.length - 1].end, tokens[0].source, message);
   }
 }

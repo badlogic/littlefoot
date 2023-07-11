@@ -3,7 +3,7 @@ import { LittleFootError } from "./error";
 import { tokenize, TokenStream, IdentifierToken, StringToken, NumberToken, NothingToken, RecordOpeningToken, OperatorToken } from "./tokenizer";
 // prettier-ignore
 import { ListLiteralNode, ListTypeNode, BinaryOperatorNode, BooleanLiteralNode, DoNode, ExpressionNode, ForEachNode, ForNode, FunctionCallNode, FunctionLiteralNode, FunctionNode, FunctionTypeNode, IfNode, IsOperatorNode, MapLiteralNode, MapOrListAccessNode, MapTypeNode, MemberAccessNode, MethodCallNode, NameAndTypeNode, NothingLiteralNode, NumberLiteralNode, StatementNode, StringLiteralNode, TernaryOperatorNode, TypeSpecifierNode, UnaryOperatorNode, VariableAccessNode, VariableNode, WhileNode, RecordTypeNode, RecordLiteralNode, ContinueNode, BreakNode, ReturnNode, TypeNode, TypeReferenceNode as TypeNameNode, AstNode, MixinTypeNode, UnionTypeNode } from "./ast";
-import { Source } from "./source";
+import { Source, SourceLocation } from "./source";
 
 export function parse(source: Source, errors: LittleFootError[]) {
   const ast: AstNode[] = [];
@@ -28,7 +28,7 @@ export function parse(source: Source, errors: LittleFootError[]) {
     }
   } catch (e) {
     if (e instanceof LittleFootError) errors.push(e);
-    else errors.push(new LittleFootError(0, 1, source, "Internal error: " + (e as any).message + "\n" + (e as any).stack));
+    else errors.push(new LittleFootError(new SourceLocation(source, 0, 1), "Internal error: " + (e as any).message + "\n" + (e as any).stack));
   } finally {
     return ast;
   }
@@ -87,16 +87,14 @@ function parseTypeSpecifier(stream: TokenStream) {
       types.push(new RecordTypeNode(firstToken, fields, lastToken));
     } else if (stream.matchValue("(")) {
       const { openingParanthesis, parameters, closingParanthesis, returnType } = parseFunctionSignature(stream);
-      types.push(new FunctionTypeNode(openingParanthesis, parameters, returnType, returnType ? returnType.lastToken : closingParanthesis));
+      types.push(new FunctionTypeNode(openingParanthesis, parameters, returnType, returnType ? returnType.location : closingParanthesis.location));
     } else {
       if (stream.hasMore()) {
         const token = stream.next();
-        throw new LittleFootError(token.start, token.end, stream.source, `Expected a type specifier, but got ${token.value}.`);
+        throw new LittleFootError(token.location, `Expected a type specifier, but got ${token.value}.`);
       } else {
         throw new LittleFootError(
-          stream.source.text.length,
-          stream.source.text.length,
-          stream.source,
+          new SourceLocation(stream.source, stream.source.text.length, stream.source.text.length),
           "Expected a type specifier, but reached end of file."
         );
       }
@@ -204,7 +202,7 @@ function parseIf(stream: TokenStream) {
         elseIfBlock,
         [],
         [],
-        elseIfBlock.length > 0 ? elseIfBlock[elseIfBlock.length - 1].lastToken : elseIfCondition.lastToken
+        elseIfBlock.length > 0 ? elseIfBlock[elseIfBlock.length - 1].location : elseIfCondition.location
       )
     );
   }
@@ -218,7 +216,7 @@ function parseIf(stream: TokenStream) {
 
   const lastToken = stream.expectValue("end");
 
-  return new IfNode(firstToken, condition, trueBlock, elseIfs, falseBlock, lastToken);
+  return new IfNode(firstToken, condition, trueBlock, elseIfs, falseBlock, lastToken.location);
 }
 
 function parseWhile(stream: TokenStream) {
@@ -305,7 +303,7 @@ function parseBinaryOperator(stream: TokenStream, level: number, context: Expres
     nextLevel == binaryOperatorPrecedence.length ? parseUnaryOperator(stream, context) : parseBinaryOperator(stream, nextLevel, context);
   let operators = binaryOperatorPrecedence[level];
   if (context.inRecord && !context.inParans) operators = operators.filter((op) => op != ">");
-  while (stream.hasMore() && stream.matchValues(operators, false)) {
+  while (stream.hasMore() && stream.matchValues(operators)) {
     const operator = stream.next();
     if (operator.value == "is") {
       const type = parseTypeSpecifier(stream);
@@ -322,7 +320,7 @@ function parseBinaryOperator(stream: TokenStream, level: number, context: Expres
 const unaryOperators = ["!", "+", "-"];
 
 function parseUnaryOperator(stream: TokenStream, context: ExpressionContext) {
-  if (stream.matchValues(unaryOperators, false)) {
+  if (stream.matchValues(unaryOperators)) {
     return new UnaryOperatorNode(stream.next(), parseExpression(stream, context));
   } else {
     if (stream.matchValue("(", true)) {
@@ -344,7 +342,6 @@ function parseAccessOrCallOrLiteral(stream: TokenStream) {
     const keys: StringToken[] = [];
     const values: ExpressionNode[] = [];
     while (stream.hasMore()) {
-      if (stream.matchValue("}")) break;
       const key = stream.expectType(StringToken);
       stream.expectValue(":");
       const value = parseExpression(stream);
@@ -371,7 +368,6 @@ function parseAccessOrCallOrLiteral(stream: TokenStream) {
     const fieldNames: IdentifierToken[] = [];
     const fieldValues: ExpressionNode[] = [];
     while (stream.hasMore()) {
-      if (stream.matchValue(">")) break;
       const name = stream.expectType(IdentifierToken);
       stream.expectValue(":");
       const value = parseExpression(stream, { inRecord: true, inParans: false });
@@ -398,16 +394,12 @@ function parseAccessOrCallOrLiteral(stream: TokenStream) {
     if (stream.hasMore()) {
       const token = stream.next();
       throw new LittleFootError(
-        token.start,
-        token.end,
-        stream.source,
+        token.location,
         `Expected a string, number, boolean, variable, field, map, list, function or method call, but got ${token.value}.`
       );
     } else {
       throw new LittleFootError(
-        stream.source.text.length,
-        stream.source.text.length,
-        stream.source,
+        new SourceLocation(stream.source, stream.source.text.length, stream.source.text.length),
         "Expected a string, number, boolean, variable, field, map, list, function or method call, but reached end of file."
       );
     }
@@ -426,7 +418,10 @@ function parseAccessOrCall(stream: TokenStream) {
       } else if (result instanceof MemberAccessNode) {
         result = new MethodCallNode(result, args, closingParanthesis);
       } else {
-        throw new LittleFootError(openingParanthesis.start, closingParanthesis.end, stream.source, `Expected a variable, field, or method.`);
+        throw new LittleFootError(
+          SourceLocation.from(openingParanthesis.location, closingParanthesis.location),
+          `Expected a variable, field, or method.`
+        );
       }
     } else if (stream.matchValue("[")) {
       const openingBracket = stream.expectValue("[");

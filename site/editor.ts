@@ -35,8 +35,8 @@ export class Editor {
   highlightErrors(errors: LittleFootError[]) {
     const markers: monaco.editor.IMarkerData[] = [];
     errors.forEach((error) => {
-      const startPos = this.editor.getModel()!.getPositionAt(error.start);
-      const endPos = this.editor.getModel()!.getPositionAt(error.end);
+      const startPos = this.editor.getModel()!.getPositionAt(error.location.start);
+      const endPos = this.editor.getModel()!.getPositionAt(error.location.end);
       markers.push({
         severity: monaco.MarkerSeverity.Error,
         startLineNumber: startPos.lineNumber,

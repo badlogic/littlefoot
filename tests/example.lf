@@ -128,7 +128,7 @@ var f = func(a: number, b: number): number
     return a + b
 end
 
-func b(f: (a: number, b: number): number): nothing
+func b(f: (a: number, b: number): number)
     print(f(1, 2).toString())
 end
 
@@ -141,6 +141,9 @@ end
 func noReturn(): nothing
     return;
 end
+
+var f: () = noReturn
+var f2: (a: <x: number, y: number>): <x: number, y: number> = t
 
 for i from 0 to 10 step 2 do
     if i == 7 then
@@ -177,5 +180,18 @@ elseif c then
 else
     printf("oh no")
 end
+
+true ? 123 : 34
+false ? 234 : 34
+!true
+-123
++34
+nothing
+a.toNumber(12)
+"\t\n\r\""
+0xfa23fbc
+0xFFaaFaC
+0b10110101
+_test
 
 a.b.toString()

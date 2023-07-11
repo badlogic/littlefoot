@@ -1,4 +1,5 @@
-import { FunctionNode, TypeNode } from "./ast";
+import { AstNode, FunctionNode, TypeNode, TypeSpecifierNode } from "./ast";
+import { SourceLocation } from "./source";
 
 export abstract class BaseType {
   private _resolvedSignature: string | null = null;
@@ -116,7 +117,7 @@ export class UnionType extends BaseType {
 export class NamedType extends BaseType {
   public readonly kind: "named type" = "named type";
 
-  constructor(public readonly name: string, public type: Type, public node: TypeNode) {
+  constructor(public readonly name: string, public type: Type, public typeNode: TypeNode, public readonly location: SourceLocation) {
     super(name);
   }
 
@@ -128,7 +129,7 @@ export class NamedType extends BaseType {
 export class NamedFunction extends BaseType {
   public readonly kind: "named function" = "named function";
 
-  constructor(public readonly name: string, public type: FunctionType, public node: FunctionNode) {
+  constructor(public readonly name: string, public type: FunctionType, public code: AstNode[], public readonly location: SourceLocation) {
     super(name + type.signature);
   }
 
@@ -189,7 +190,7 @@ export function traverseType(type: Type, callback: (type: Type) => boolean) {
 }
 
 export class Types {
-  public readonly allTypes = new Map<String, PrimitiveType | NamedType | NamedFunction>();
+  public readonly lookup = new Map<String, PrimitiveType | NamedType | NamedFunction>();
 
   constructor() {
     this.add(NothingType);
@@ -200,18 +201,18 @@ export class Types {
   }
 
   get(name: string) {
-    return this.allTypes.get(name);
+    return this.lookup.get(name);
   }
 
   has(signature: string) {
-    return this.allTypes.has(signature);
+    return this.lookup.has(signature);
   }
 
   add(type: PrimitiveType | NamedType | NamedFunction) {
-    if (this.allTypes.has(type.signature)) {
+    if (this.lookup.has(type.signature)) {
       throw new Error(`Internal compiler error: Type ${type.kind} -> ${type.signature} already exists`);
     }
-    this.allTypes.set(type.signature, type);
+    this.lookup.set(type.signature, type);
   }
 }
 

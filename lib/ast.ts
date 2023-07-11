@@ -1,3 +1,4 @@
+import { SourceLocation } from "./source";
 import { BoolToken, IdentifierToken, NothingToken, NumberToken, OperatorToken, StringToken, Token } from "./tokenizer";
 import { Type, UnknownType } from "./types";
 
@@ -41,21 +42,13 @@ export type ExpressionNode =
 export abstract class BaseAstNode {
   public type: Type = UnknownType;
 
-  constructor(public readonly firstToken: Token, public readonly lastToken: Token) {}
-
-  get start(): number {
-    return this.firstToken.start;
-  }
-
-  get end(): number {
-    return this.lastToken.end;
-  }
+  constructor(public readonly location: SourceLocation) {}
 }
 
 export class TypeReferenceNode extends BaseAstNode {
   public readonly kind: "type reference" = "type reference";
   constructor(public readonly name: IdentifierToken) {
-    super(name, name);
+    super(name.location);
   }
 }
 
@@ -63,42 +56,47 @@ export class ListTypeNode extends BaseAstNode {
   public readonly kind: "list type" = "list type";
 
   constructor(openingBracket: OperatorToken, public readonly elementType: TypeSpecifierNode, closingBracket: OperatorToken) {
-    super(openingBracket, closingBracket);
+    super(SourceLocation.from(openingBracket.location, closingBracket.location));
   }
 }
 
 export class MapTypeNode extends BaseAstNode {
   public readonly kind: "map type" = "map type";
   constructor(openingCurly: OperatorToken, public readonly valueType: TypeSpecifierNode, closingCurly: OperatorToken) {
-    super(openingCurly, closingCurly);
+    super(SourceLocation.from(openingCurly.location, closingCurly.location));
   }
 }
 
 export class FunctionTypeNode extends BaseAstNode {
   public readonly kind: "function type" = "function type";
-  constructor(firstToken: Token, public readonly parameters: NameAndTypeNode[], public returnType: TypeSpecifierNode | null, lastToken: Token) {
-    super(firstToken, lastToken);
+  constructor(
+    firstToken: Token,
+    public readonly parameters: NameAndTypeNode[],
+    public returnType: TypeSpecifierNode | null,
+    lastLocation: SourceLocation
+  ) {
+    super(SourceLocation.from(firstToken.location, lastLocation));
   }
 }
 
 export class RecordTypeNode extends BaseAstNode {
   public readonly kind: "record type" = "record type";
   constructor(firstToken: Token, public readonly fields: NameAndTypeNode[], lastToken: Token) {
-    super(firstToken, lastToken);
+    super(SourceLocation.from(firstToken.location, lastToken.location));
   }
 }
 
 export class UnionTypeNode extends BaseAstNode {
   public readonly kind: "union type" = "union type";
   constructor(public readonly unionTypes: TypeSpecifierNode[]) {
-    super(unionTypes[0].firstToken, unionTypes[unionTypes.length - 1].lastToken);
+    super(SourceLocation.from(unionTypes[0].location, unionTypes[unionTypes.length - 1].location));
   }
 }
 
 export class MixinTypeNode extends BaseAstNode {
   public readonly kind: "mixin type" = "mixin type";
   constructor(public readonly mixinTypes: TypeSpecifierNode[]) {
-    super(mixinTypes[0].firstToken, mixinTypes[mixinTypes.length - 1].lastToken);
+    super(SourceLocation.from(mixinTypes[0].location, mixinTypes[mixinTypes.length - 1].location));
   }
 }
 
@@ -106,14 +104,14 @@ export class TypeNode extends BaseAstNode {
   public readonly kind: "type declaration" = "type declaration";
 
   constructor(firstToken: Token, public readonly name: IdentifierToken, public readonly typeNode: TypeSpecifierNode) {
-    super(firstToken, typeNode.lastToken);
+    super(SourceLocation.from(firstToken.location, typeNode.location));
   }
 }
 
 export class NameAndTypeNode extends BaseAstNode {
   public readonly kind: "name and type" = "name and type";
   constructor(public readonly name: IdentifierToken, public readonly typeNode: TypeSpecifierNode) {
-    super(name, typeNode.lastToken);
+    super(SourceLocation.from(name.location, typeNode.location));
   }
 }
 
@@ -127,7 +125,7 @@ export class FunctionNode extends BaseAstNode {
     public readonly code: StatementNode[],
     lastToken: Token
   ) {
-    super(firstToken, lastToken);
+    super(SourceLocation.from(firstToken.location, lastToken.location));
   }
 }
 
@@ -139,7 +137,7 @@ export class VariableNode extends BaseAstNode {
     public typeNode: TypeSpecifierNode | null,
     public readonly initializer: ExpressionNode
   ) {
-    super(firstToken, initializer.lastToken);
+    super(SourceLocation.from(firstToken.location, initializer.location));
   }
 }
 
@@ -151,16 +149,16 @@ export class IfNode extends BaseAstNode {
     public readonly trueBlock: StatementNode[],
     public readonly elseIfs: IfNode[],
     public readonly falseBlock: StatementNode[],
-    lastToken: Token
+    lastLocation: SourceLocation
   ) {
-    super(firstToken, lastToken);
+    super(SourceLocation.from(firstToken.location, lastLocation));
   }
 }
 
 export class WhileNode extends BaseAstNode {
   public readonly kind: "while" = "while";
   constructor(firstToken: Token, public readonly condition: ExpressionNode, public readonly block: StatementNode[], lastToken: Token) {
-    super(firstToken, lastToken);
+    super(SourceLocation.from(firstToken.location, lastToken.location));
   }
 }
 
@@ -175,7 +173,7 @@ export class ForNode extends BaseAstNode {
     public readonly block: StatementNode[],
     lastToken: Token
   ) {
-    super(firstToken, lastToken);
+    super(SourceLocation.from(firstToken.location, lastToken.location));
   }
 }
 
@@ -188,35 +186,35 @@ export class ForEachNode extends BaseAstNode {
     public readonly block: StatementNode[],
     lastToken: Token
   ) {
-    super(firstToken, lastToken);
+    super(SourceLocation.from(firstToken.location, lastToken.location));
   }
 }
 
 export class DoNode extends BaseAstNode {
   public readonly kind: "do" = "do";
   constructor(firstToken: Token, public readonly condition: ExpressionNode, public readonly block: StatementNode[]) {
-    super(firstToken, condition.lastToken);
+    super(SourceLocation.from(firstToken.location, condition.location));
   }
 }
 
 export class ContinueNode extends BaseAstNode {
   public readonly kind: "continue" = "continue";
   constructor(token: Token) {
-    super(token, token);
+    super(token.location);
   }
 }
 
 export class BreakNode extends BaseAstNode {
   public readonly kind: "break" = "break";
   constructor(token: Token) {
-    super(token, token);
+    super(token.location);
   }
 }
 
 export class ReturnNode extends BaseAstNode {
   public readonly kind: "return" = "return";
   constructor(firstToken: Token, public readonly expression: ExpressionNode | null) {
-    super(firstToken, expression ? expression.lastToken : firstToken);
+    super(SourceLocation.from(firstToken.location, expression ? expression.location : firstToken.location));
   }
 }
 
@@ -227,7 +225,7 @@ export class TernaryOperatorNode extends BaseAstNode {
     public readonly trueExpression: ExpressionNode,
     public readonly falseExpression: ExpressionNode
   ) {
-    super(condition.firstToken, falseExpression.lastToken);
+    super(SourceLocation.from(condition.location, falseExpression.location));
   }
 }
 
@@ -238,70 +236,70 @@ export class BinaryOperatorNode extends BaseAstNode {
     public readonly operator: OperatorToken,
     public readonly rightExpression: ExpressionNode
   ) {
-    super(leftExpression.firstToken, rightExpression.lastToken);
+    super(SourceLocation.from(leftExpression.location, rightExpression.location));
   }
 }
 
 export class UnaryOperatorNode extends BaseAstNode {
   public readonly kind: "unary operator" = "unary operator";
   constructor(public readonly operator: OperatorToken, public readonly expression: ExpressionNode) {
-    super(operator, expression.lastToken);
+    super(SourceLocation.from(operator.location, expression.location));
   }
 }
 
 export class IsOperatorNode extends BaseAstNode {
   public readonly kind: "is operator" = "is operator";
   constructor(public readonly leftExpression: ExpressionNode, public readonly typeNode: TypeSpecifierNode) {
-    super(leftExpression.firstToken, typeNode.lastToken);
+    super(SourceLocation.from(leftExpression.location, typeNode.location));
   }
 }
 
 export class StringLiteralNode extends BaseAstNode {
   public readonly kind: "string" = "string";
   constructor(public readonly token: StringToken) {
-    super(token, token);
+    super(token.location);
   }
 }
 
 export class NumberLiteralNode extends BaseAstNode {
   public readonly kind: "number" = "number";
   constructor(public readonly token: NumberToken) {
-    super(token, token);
+    super(token.location);
   }
 }
 
 export class BooleanLiteralNode extends BaseAstNode {
   public readonly kind: "boolean" = "boolean";
   constructor(public readonly token: BoolToken) {
-    super(token, token);
+    super(token.location);
   }
 }
 
 export class NothingLiteralNode extends BaseAstNode {
   public readonly kind: "nothing" = "nothing";
   constructor(public readonly token: NothingToken) {
-    super(token, token);
+    super(token.location);
   }
 }
 
 export class ListLiteralNode extends BaseAstNode {
   public readonly kind: "list literal" = "list literal";
   constructor(firstToken: Token, public readonly elements: ExpressionNode[], lastToken: Token) {
-    super(firstToken, lastToken);
+    super(SourceLocation.from(firstToken.location, lastToken.location));
   }
 }
 
 export class MapLiteralNode extends BaseAstNode {
   public readonly kind: "map literal" = "map literal";
   constructor(firstToken: Token, public readonly keys: StringToken[], public readonly values: ExpressionNode[], lastToken: Token) {
-    super(firstToken, lastToken);
+    super(SourceLocation.from(firstToken.location, lastToken.location));
   }
 }
 
 export class RecordLiteralNode extends BaseAstNode {
   public readonly kind: "record literal" = "record literal";
   constructor(firstToken: Token, public readonly fieldNames: IdentifierToken[], public readonly fieldValues: ExpressionNode[], lastToken: Token) {
-    super(firstToken, lastToken);
+    super(SourceLocation.from(firstToken.location, lastToken.location));
   }
 }
 
@@ -314,42 +312,42 @@ export class FunctionLiteralNode extends BaseAstNode {
     public readonly code: StatementNode[],
     lastToken: Token
   ) {
-    super(firstToken, lastToken);
+    super(SourceLocation.from(firstToken.location, lastToken.location));
   }
 }
 
 export class VariableAccessNode extends BaseAstNode {
   public readonly kind: "variable access" = "variable access";
   constructor(public readonly name: IdentifierToken) {
-    super(name, name);
+    super(name.location);
   }
 }
 
 export class MemberAccessNode extends BaseAstNode {
   public readonly kind: "member access" = "member access";
   constructor(public readonly object: ExpressionNode, public readonly member: IdentifierToken) {
-    super(object.firstToken, member);
+    super(SourceLocation.from(object.location, member.location));
   }
 }
 
 export class MapOrListAccessNode extends BaseAstNode {
   public readonly kind: "map or list access" = "map or list access";
   constructor(public readonly target: ExpressionNode, public readonly keyOrIndex: ExpressionNode, lastToken: Token) {
-    super(target.firstToken, lastToken);
+    super(SourceLocation.from(target.location, lastToken.location));
   }
 }
 
 export class FunctionCallNode extends BaseAstNode {
   public readonly kind: "function call" = "function call";
   constructor(public readonly target: ExpressionNode, public readonly args: ExpressionNode[], lastToken: Token) {
-    super(target.firstToken, lastToken);
+    super(SourceLocation.from(target.location, lastToken.location));
   }
 }
 
 export class MethodCallNode extends BaseAstNode {
   public readonly kind: "method call" = "method call";
   constructor(public readonly target: ExpressionNode, public readonly args: ExpressionNode[], lastToken: Token) {
-    super(target.firstToken, lastToken);
+    super(SourceLocation.from(target.location, lastToken.location));
   }
 }
 

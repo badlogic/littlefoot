@@ -1,21 +1,15 @@
 import { LittleFootError } from "./error";
-import { Source } from "./source";
+import { Source, SourceLocation } from "./source";
 
 export abstract class Token {
-  constructor(
-    public readonly start: number,
-    public readonly end: number,
-    public readonly value: string,
-    public readonly source: Source,
-    public readonly comments: CommentToken[] = []
-  ) {}
+  constructor(public readonly location: SourceLocation, public readonly value: string, public readonly comments: CommentToken[] = []) {}
 }
 
 export class NothingToken extends Token {}
 export class BoolToken extends Token {}
 export class NumberToken extends Token {
-  constructor(start: number, end: number, public readonly numberValue: number, source: Source, comments: CommentToken[]) {
-    super(start, end, numberValue.toString(), source, comments);
+  constructor(location: SourceLocation, public readonly numberValue: number, comments: CommentToken[]) {
+    super(location, numberValue.toString(), comments);
   }
 }
 export class StringToken extends Token {}
@@ -121,7 +115,7 @@ export function tokenize(source: Source, errors: LittleFootError[]) {
         value += c;
         i++;
       }
-      comments.push(new CommentToken(start, i, value, source));
+      comments.push(new CommentToken(new SourceLocation(source, start, i), value));
       continue;
     }
 
@@ -129,18 +123,18 @@ export function tokenize(source: Source, errors: LittleFootError[]) {
     if (operatorStarts.has(char)) {
       let start = i;
       if (i == n && operators.has(char)) {
-        tokens.push(new OperatorToken(start, i, char, source, comments));
+        tokens.push(new OperatorToken(new SourceLocation(source, start, i), char, comments));
         comments = [];
         continue;
       }
       if (operators.has(char + text.charAt(i + 1))) {
-        tokens.push(new OperatorToken(start, i + 2, char + text.charAt(i + 1), source, comments));
+        tokens.push(new OperatorToken(new SourceLocation(source, start, i + 2), char + text.charAt(i + 1), comments));
         comments = [];
         i += 2;
         continue;
       }
       if (operators.has(char)) {
-        tokens.push(new OperatorToken(start, i + 1, char, source, comments));
+        tokens.push(new OperatorToken(new SourceLocation(source, start, i + 1), char, comments));
         comments = [];
         i++;
         continue;
@@ -154,7 +148,7 @@ export function tokenize(source: Source, errors: LittleFootError[]) {
       i++;
 
       if (i == n) {
-        tokens.push(new NumberToken(start, i, Number.parseInt(char), source, comments));
+        tokens.push(new NumberToken(new SourceLocation(source, start, i), Number.parseInt(char), comments));
         comments = [];
         continue;
       }
@@ -164,7 +158,7 @@ export function tokenize(source: Source, errors: LittleFootError[]) {
         value = "";
         i++;
         if (i == n) {
-          errors.push(new LittleFootError(start, i, source, `Source ended before hexadecimal number was complete.`));
+          errors.push(new LittleFootError(new SourceLocation(source, start, i), `Source ended before hexadecimal number was complete.`));
           return tokens;
         }
         while (i < n && isHexDigit(text.charAt(i))) {
@@ -172,17 +166,17 @@ export function tokenize(source: Source, errors: LittleFootError[]) {
           i++;
         }
         if (value.length == 0) {
-          errors.push(new LittleFootError(start, i, source, `Expected one or more hexadecimal digits.`));
+          errors.push(new LittleFootError(new SourceLocation(source, start, i), `Expected one or more hexadecimal digits.`));
           return tokens;
         }
-        tokens.push(new NumberToken(start, i, Number.parseInt(value, 16), source, comments));
+        tokens.push(new NumberToken(new SourceLocation(source, start, i), Number.parseInt(value, 16), comments));
         comments = [];
         continue;
       } else if (char == "0" && text.charAt(i) == "b") {
         value = "";
         i++;
         if (i == n) {
-          errors.push(new LittleFootError(start, i, source, `Source ended before binary number was complete.`));
+          errors.push(new LittleFootError(new SourceLocation(source, start, i), `Source ended before binary number was complete.`));
           return tokens;
         }
         while (i < n && isBinaryDigit(text.charAt(i))) {
@@ -190,10 +184,10 @@ export function tokenize(source: Source, errors: LittleFootError[]) {
           i++;
         }
         if (value.length == 0) {
-          errors.push(new LittleFootError(start, i, source, `Expected one or more binary digits.`));
+          errors.push(new LittleFootError(new SourceLocation(source, start, i), `Expected one or more binary digits.`));
           return tokens;
         }
-        tokens.push(new NumberToken(start, i, Number.parseInt(value, 2), source, comments));
+        tokens.push(new NumberToken(new SourceLocation(source, start, i), Number.parseInt(value, 2), comments));
         comments = [];
         continue;
       } else {
@@ -202,7 +196,7 @@ export function tokenize(source: Source, errors: LittleFootError[]) {
           i++;
         }
         if (i == n) {
-          tokens.push(new NumberToken(start, i, Number.parseFloat(value), source, comments));
+          tokens.push(new NumberToken(new SourceLocation(source, start, i), Number.parseFloat(value), comments));
           comments = [];
           continue;
         }
@@ -215,7 +209,7 @@ export function tokenize(source: Source, errors: LittleFootError[]) {
             i++;
           }
         }
-        tokens.push(new NumberToken(start, i, Number.parseFloat(value), source, comments));
+        tokens.push(new NumberToken(new SourceLocation(source, start, i), Number.parseFloat(value), comments));
         comments = [];
         continue;
       }
@@ -232,7 +226,7 @@ export function tokenize(source: Source, errors: LittleFootError[]) {
         i++;
         if (char == "\\") {
           if (i == n) {
-            errors.push(new LittleFootError(start, i, source, `Source ends before string escape and string was closed.`));
+            errors.push(new LittleFootError(new SourceLocation(source, start, i), `Source ends before string escape and string was closed.`));
             return tokens;
           }
           const escaped = text.charAt(i++);
@@ -245,12 +239,12 @@ export function tokenize(source: Source, errors: LittleFootError[]) {
           } else if (escaped === '"') {
             value += '"';
           } else {
-            errors.push(new LittleFootError(start, i, source, `Unknown string escape.`));
+            errors.push(new LittleFootError(new SourceLocation(source, start, i), `Unknown string escape.`));
             return tokens;
           }
         } else if (char == '"') {
           closed = true;
-          tokens.push(new StringToken(start, i, value, source, comments));
+          tokens.push(new StringToken(new SourceLocation(source, start, i), value, comments));
           comments = [];
           break;
         } else {
@@ -258,7 +252,7 @@ export function tokenize(source: Source, errors: LittleFootError[]) {
         }
       }
       if (!closed) {
-        errors.push(new LittleFootError(start, i, source, `String not closed.`));
+        errors.push(new LittleFootError(new SourceLocation(source, start, i), `String not closed.`));
         return tokens;
       }
       continue;
@@ -273,19 +267,19 @@ export function tokenize(source: Source, errors: LittleFootError[]) {
       }
       const identifier = source.text.substring(start, i);
       if (identifier == "true" || identifier == "false") {
-        tokens.push(new BoolToken(start, i, identifier, source, comments));
+        tokens.push(new BoolToken(new SourceLocation(source, start, i), identifier, comments));
       } else if (identifier == "nothing") {
-        tokens.push(new NothingToken(start, i, identifier, source, comments));
+        tokens.push(new NothingToken(new SourceLocation(source, start, i), identifier, comments));
       } else if (keywordsLookup.has(identifier)) {
-        tokens.push(new KeywordToken(start, i, identifier, source, comments));
+        tokens.push(new KeywordToken(new SourceLocation(source, start, i), identifier, comments));
       } else {
-        tokens.push(new IdentifierToken(start, i, identifier, source, comments));
+        tokens.push(new IdentifierToken(new SourceLocation(source, start, i), identifier, comments));
       }
       comments = [];
       continue;
     }
 
-    errors.push(new LittleFootError(i, i + 1, source, `Unknown token.`));
+    errors.push(new LittleFootError(new SourceLocation(source, i, i + 1), `Unknown token.`));
     return tokens;
   }
 
@@ -294,7 +288,7 @@ export function tokenize(source: Source, errors: LittleFootError[]) {
   for (let i = 0; i < tokens.length - 2; i++) {
     if (tokens[i].value == "<" && tokens[i + 1] instanceof IdentifierToken && tokens[i + 2].value == ":") {
       const token = tokens[i];
-      tokens[i] = new RecordOpeningToken(token.start, token.end, token.value + "|", token.source, token.comments);
+      tokens[i] = new RecordOpeningToken(token.location, token.value + "|", token.comments);
     }
   }
 
@@ -320,7 +314,7 @@ export class TokenStream {
     return result;
   }
 
-  matchValues(values: string[], consume = false) {
+  matchValues(values: string[]) {
     if (!this.hasMore()) return false;
     let result = false;
     const token = this.tokens[this.index];
@@ -330,60 +324,41 @@ export class TokenStream {
         break;
       }
     }
-    if (result && consume) this.next();
     return result;
   }
 
   expectValue(value: string) {
     if (!this.hasMore()) {
-      throw new LittleFootError(this.source.text.length, this.source.text.length, this.source, `Expected '${value}' but reached end of file.`);
+      throw new LittleFootError(
+        new SourceLocation(this.source, this.source.text.length, this.source.text.length),
+        `Expected '${value}' but reached end of file.`
+      );
     }
     const token = this.tokens[this.index];
     const result = token.value === value;
     if (!result) {
-      throw new LittleFootError(token.start, token.end, this.source, `Expected '${value}' but got '${this.tokens[this.index].value}'`);
+      throw new LittleFootError(token.location, `Expected '${value}' but got '${this.tokens[this.index].value}'`);
     }
     return this.next();
   }
 
-  expectValues(values: string[]) {
-    if (!this.hasMore()) {
-      throw new LittleFootError(this.source.text.length, this.source.text.length, this.source, `Expected '${values}' but reached end of file.`);
-    }
-    let result = false;
-    const token = this.tokens[this.index];
-    for (const value of values) {
-      if (value == token.value) {
-        result = true;
-        break;
-      }
-    }
-    if (!result) {
-      throw new LittleFootError(token.start, token.end, this.source, `Expected '${values}' but got '${token.value}'`);
-    }
-    return this.next();
-  }
-
-  matchType<T extends Token>(type: TokenConstructor<T>, consume = false) {
+  matchType<T extends Token>(type: TokenConstructor<T>) {
     if (!this.hasMore()) return false;
     const result = this.tokens[this.index] instanceof type;
-    if (result && consume) this.next();
     return result;
   }
 
   expectType<T extends Token>(type: TokenConstructor<T>): T {
     if (!this.hasMore()) {
       throw new LittleFootError(
-        this.source.text.length,
-        this.source.text.length,
-        this.source,
+        new SourceLocation(this.source, this.source.text.length, this.source.text.length),
         `Expected '${tokenLabel(type)}' but reached end of file.`
       );
     }
     const token = this.tokens[this.index];
     const result = token instanceof type;
     if (!result) {
-      throw new LittleFootError(token.start, token.end, this.source, `Expected '${tokenLabel(type)}' but got '${token.value}'`);
+      throw new LittleFootError(token.location, `Expected '${tokenLabel(type)}' but got '${token.value}'`);
     }
     return this.next<T>();
   }

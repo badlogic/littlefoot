@@ -35,7 +35,7 @@ function compileText(value: string) {
     editor.highlightErrors([]);
     output.innerHTML = JSON.stringify(
       ast,
-      (key, value) => (key == "source" || key == "firstToken" || key == "lastToken" || key == "node" ? undefined : value),
+      (key, value) => (key == "source" || key == "firstToken" || key == "lastToken" || key == "typeNode" || key == "code" ? undefined : value),
       2
     )
       .replace(/</g, "&lt;")
