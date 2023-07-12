@@ -61,6 +61,9 @@ function isIdentifierPart(char: string) {
 }
 
 export const keywords = [
+  "import",
+  "export",
+  "external",
   "var",
   "func",
   "type",

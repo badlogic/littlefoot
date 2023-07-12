@@ -38,7 +38,14 @@ export function compile(path: string, sourceLoader: SourceLoader) {
     return node.kind != "import" && node.kind != "function declaration" && node.kind != "type declaration";
   });
   context.types.add(
-    new NamedFunction("$moduleInit", new FunctionType([], NothingType), mainStatements, new SourceLocation(source, 0, source.text.length))
+    new NamedFunction(
+      "$moduleInit",
+      new FunctionType([], NothingType),
+      mainStatements,
+      false,
+      false,
+      new SourceLocation(source, 0, source.text.length)
+    )
   );
 
   checkTypes(ast, context);

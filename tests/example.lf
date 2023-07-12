@@ -1,6 +1,9 @@
 import "std"
 import foo, bar as baf from "mymodule"
 
+export func foo()
+end
+
 # this is a comment
 # and another one
 var truthy = true
@@ -10,7 +13,7 @@ var num = 0
 var num: number = 2 + 34 + cosine(0.4)
 
 var str = "This is a test😊\n"
-var str: string = "This is a test😊\n"
+export var str: string = "This is a test😊\n"
 
 var union: bool | number | string | nothing = nothing
 
@@ -64,13 +67,16 @@ type node = <
 >
 
 # Auto-generate constructor function for record?
-func node(children: [node] | nothing, value: number): node
+export func node(children: [node] | nothing, value: number): node
     return <children: children, value: value>
 end
 
 func node(value: number): node
     return <children: [], value: value>
 end
+
+export external func myExternalFunc(x: number, y: number);
+export external func myExternalFunc(x: number, y: number): nothing;
 
 var n: node = <children: [], value: 1>
 var n = node([], 1)

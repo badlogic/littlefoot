@@ -5,6 +5,11 @@ import { tokenize, TokenStream, IdentifierToken, StringToken, NumberToken, Nothi
 import { ListLiteralNode, ListTypeNode, BinaryOperatorNode, BooleanLiteralNode, DoNode, ExpressionNode, ForEachNode, ForNode, FunctionCallNode, FunctionLiteralNode, FunctionNode, FunctionTypeNode, IfNode, IsOperatorNode, MapLiteralNode, MapOrListAccessNode, MapTypeNode, MemberAccessNode, MethodCallNode, NameAndTypeNode, NothingLiteralNode, NumberLiteralNode, StatementNode, StringLiteralNode, TernaryOperatorNode, TypeSpecifierNode, UnaryOperatorNode, VariableAccessNode, VariableNode, WhileNode, RecordTypeNode, RecordLiteralNode, ContinueNode, BreakNode, ReturnNode, TypeNode, TypeReferenceNode as TypeNameNode, AstNode, MixinTypeNode, UnionTypeNode, ImportNode, ImportedNameNode } from "./ast";
 import { Source, SourceLocation } from "./source";
 
+export enum Attribute {
+  Export,
+  External,
+}
+
 export function parse(source: Source, errors: LittleFootError[]) {
   const ast: AstNode[] = [];
   const tokens = tokenize(source, errors);
@@ -18,14 +23,18 @@ export function parse(source: Source, errors: LittleFootError[]) {
     }
 
     while (stream.hasMore()) {
+      const attributes = parseAttributes(stream);
+
       if (stream.matchValue("func")) {
-        ast.push(parseFunction(stream, true) as FunctionNode);
+        ast.push(parseFunction(stream, true, attributes));
       } else if (stream.matchValue("type")) {
         const firstToken = stream.expectValue("type");
         const name = stream.expectType(IdentifierToken);
         stream.expectValue("=");
         const type = parseTypeSpecifier(stream);
         ast.push(new TypeNode(firstToken, name, type));
+      } else if (stream.matchValue("var")) {
+        ast.push(parseVariable(stream, attributes));
       } else {
         ast.push(parseStatement(stream));
       }
@@ -36,6 +45,29 @@ export function parse(source: Source, errors: LittleFootError[]) {
   } finally {
     return ast;
   }
+}
+
+const attributeValues = ["export", "external"];
+
+function parseAttributes(stream: TokenStream) {
+  const attributes = [];
+  while (stream.matchValues(attributeValues)) {
+    const attributeValue = stream.next();
+    switch (attributeValue.value) {
+      case "external": {
+        attributes.push(Attribute.External);
+        break;
+      }
+      case "export": {
+        attributes.push(Attribute.Export);
+        break;
+      }
+      default: {
+        throw new LittleFootError(attributeValue.location, `Expected export or external, but got '${attributeValue.value}`);
+      }
+    }
+  }
+  return attributes;
 }
 
 function parseImport(stream: TokenStream): ImportNode {
@@ -79,13 +111,16 @@ function parseStatement(stream: TokenStream): StatementNode {
   }
 }
 
-function parseVariable(stream: TokenStream) {
+function parseVariable(stream: TokenStream, attributes: Attribute[] = []) {
   const firstToken = stream.expectValue("var");
   const identifier = stream.expectType(IdentifierToken);
+  if (attributes.length > 1) throw new LittleFootError(identifier.location, `Expected only 'export' attribute but got '${attributes.join(",")}'`);
+  if (attributes.length == 1 && attributes[0] != Attribute.Export)
+    throw new LittleFootError(identifier.location, `Expected 'export' attribute but got '${attributes.join(",")}'`);
   const type = stream.matchValue(":", true) ? parseTypeSpecifier(stream) : null;
   stream.expectValue("=");
   const initializer = parseExpression(stream);
-  return new VariableNode(firstToken, identifier, type, initializer);
+  return new VariableNode(firstToken, identifier, type, initializer, attributes.length == 1 && attributes[0] == Attribute.Export);
 }
 
 function parseTypeSpecifier(stream: TokenStream) {
@@ -166,17 +201,44 @@ function parseNameAndType(stream: TokenStream) {
   return new NameAndTypeNode(name, type);
 }
 
-function parseFunction(stream: TokenStream, hasName: boolean) {
+function parseFunction(stream: TokenStream, hasName: boolean, attributes: Attribute[] = []) {
   const firstToken = stream.expectValue("func");
   const name = hasName ? stream.expectType(IdentifierToken) : null;
-  const { parameters, returnType } = parseFunctionSignature(stream);
+
+  if (hasName == false && attributes.length > 0)
+    throw new LittleFootError(firstToken.location, "Function literals can not have attributes like export or external.");
+  if (hasName && attributes.length > 3)
+    throw new LittleFootError(name!.location, "Function can only have the attribute export, external, or export and external.");
+  if (hasName && attributes.length == 1 && !(attributes[0] == Attribute.Export || attributes[0] == Attribute.External))
+    throw new LittleFootError(name!.location, "Function can only have the attribute export, external, or export and external.");
+  if (
+    hasName &&
+    attributes.length == 2 &&
+    !(
+      (attributes[0] == Attribute.Export && attributes[1] == Attribute.External) ||
+      (attributes[0] == Attribute.External && attributes[1] == Attribute.Export)
+    )
+  )
+    throw new LittleFootError(name!.location, "Function can only have the attribute export, external, or export and external.");
+
+  const { parameters, returnType, closingParanthesis } = parseFunctionSignature(stream);
   const code = [];
-  while (stream.hasMore() && !stream.matchValue("end")) {
-    code.push(parseStatement(stream));
+  let lastLocation: SourceLocation;
+  const exported = attributes.find((attribute) => attribute == Attribute.Export);
+  const external = attributes.find((attribute) => attribute == Attribute.External);
+  if (!external) {
+    while (stream.hasMore() && !stream.matchValue("end")) {
+      code.push(parseStatement(stream));
+    }
+    lastLocation = stream.expectValue("end").location;
+  } else {
+    lastLocation = stream.expectValue(";").location;
   }
-  const lastToken = stream.expectValue("end");
-  if (hasName) return new FunctionNode(firstToken, name!, parameters, returnType, code, lastToken);
-  else return new FunctionLiteralNode(firstToken, parameters, returnType, code, lastToken);
+  if (hasName) {
+    return new FunctionNode(firstToken, name!, parameters, returnType, code, exported !== undefined, external !== undefined, lastLocation);
+  } else {
+    return new FunctionLiteralNode(firstToken, parameters, returnType, code, lastLocation);
+  }
 }
 
 function parseFunctionSignature(stream: TokenStream) {

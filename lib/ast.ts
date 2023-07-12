@@ -1,12 +1,13 @@
+import { Attribute } from "./parser";
 import { SourceLocation } from "./source";
 import { BoolToken, IdentifierToken, NothingToken, NumberToken, OperatorToken, StringToken, Token } from "./tokenizer";
 import { Type, UnknownType } from "./types";
 
 export type AstNode = ImportNode | ImportedNameNode | NameAndTypeNode | TypeSpecifierNode | TopLevelNode;
 
-export type TypeSpecifierNode = TypeReferenceNode | ListTypeNode | MapTypeNode | FunctionTypeNode | RecordTypeNode | UnionTypeNode | MixinTypeNode;
-
 export type TopLevelNode = FunctionNode | TypeNode | StatementNode;
+
+export type TypeSpecifierNode = TypeReferenceNode | ListTypeNode | MapTypeNode | FunctionTypeNode | RecordTypeNode | UnionTypeNode | MixinTypeNode;
 
 export type StatementNode =
   | VariableNode
@@ -137,9 +138,11 @@ export class FunctionNode extends BaseAstNode {
     public readonly parameters: NameAndTypeNode[],
     public returnType: TypeSpecifierNode | null,
     public readonly code: StatementNode[],
-    lastToken: Token
+    public readonly exported: boolean,
+    public readonly external: boolean,
+    lastLocation: SourceLocation
   ) {
-    super(SourceLocation.from(firstToken.location, lastToken.location));
+    super(SourceLocation.from(firstToken.location, lastLocation));
   }
 }
 
@@ -149,7 +152,8 @@ export class VariableNode extends BaseAstNode {
     firstToken: Token,
     public readonly identifier: IdentifierToken,
     public typeNode: TypeSpecifierNode | null,
-    public readonly initializer: ExpressionNode
+    public readonly initializer: ExpressionNode,
+    public readonly exported = false
   ) {
     super(SourceLocation.from(firstToken.location, initializer.location));
   }
@@ -324,9 +328,9 @@ export class FunctionLiteralNode extends BaseAstNode {
     public readonly parameters: NameAndTypeNode[],
     public returnType: TypeSpecifierNode | null,
     public readonly code: StatementNode[],
-    lastToken: Token
+    lastLocation: SourceLocation
   ) {
-    super(SourceLocation.from(firstToken.location, lastToken.location));
+    super(SourceLocation.from(firstToken.location, lastLocation));
   }
 }
 

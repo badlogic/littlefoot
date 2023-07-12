@@ -129,7 +129,14 @@ export class NamedType extends BaseType {
 export class NamedFunction extends BaseType {
   public readonly kind: "named function" = "named function";
 
-  constructor(public readonly name: string, public type: FunctionType, public code: AstNode[], public readonly location: SourceLocation) {
+  constructor(
+    public readonly name: string,
+    public type: FunctionType,
+    public code: AstNode[],
+    public readonly exported: boolean,
+    public readonly external: boolean,
+    public readonly location: SourceLocation
+  ) {
     super(name + type.signature);
   }
 

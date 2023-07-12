@@ -179,9 +179,8 @@ export function checkNodeTypes(node: AstNode, context: CompilerContext) {
       node.type = node.typeNode.type;
       break;
     }
-    case "import": {
-      break;
-    }
+    case "import":
+      throw new Error("Not implemented");
     case "imported name": {
       break; // no-op, handled in "import" case above
     }
@@ -197,7 +196,7 @@ export function checkNodeTypes(node: AstNode, context: CompilerContext) {
         node.returnType ? node.returnType.type : NothingType
       );
       node.type = functionType;
-      const namedFunction = new NamedFunction(node.name.value, functionType, node.code, node.location);
+      const namedFunction = new NamedFunction(node.name.value, functionType, node.code, node.exported, node.external, node.location);
       if (context.types.has(namedFunction.signature)) {
         const otherType = context.types.get(namedFunction.signature)! as NamedFunction;
         const otherTypeLineIndex = otherType.location.source.indicesToLines(otherType.location.start, otherType.location.end)[0].index;
