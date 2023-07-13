@@ -29,18 +29,18 @@ else
     end
 end
 
-var array = [0, 1, 3]
-var array: [number] = [23, 5, 43]
-var first = array[0]
-var last = array[array.length - 1]
+var list = [0, 1, 3]
+var list: [number] = [23, 5, 43]
+var first = list[0]
+var last = list[list.length - 1]
 var sum = 0
-for each num in array do
+for each num in list do
     sum = sum + num
 end
 print(sum)
 
-var array = [0, "test", true]
-var array: [number | string | bool] = [0, "test", true]
+var list = [0, "test", true]
+var list: [number | string | bool] = [0, "test", true]
 
 var map = { "a": 1, "b": 2, "c": 3}
 var map: {number} = {"a": 1, "b": 2, "c": 3}
@@ -55,7 +55,6 @@ for each key in map.keys do
         print("It's a number: " + value)
     end
 end
-var a = map.a
 
 var record = < a: 0, b: 2 >
 var record: <a: number, b: number> =  < a: 0, b: 2 > 2>
@@ -84,7 +83,7 @@ var leaf = node(1)
 
 func traverse(node: node): nothing
     print(node.value.toString())
-    if !(node.children is nothing) then
+    if not (node.children is nothing) then
         for each child in children do
             traverse(child)
         end
@@ -164,7 +163,7 @@ for i from 0 to 10 step 2 do
     end
 end
 
-for each element in myArray do
+for each element in mylist do
     print(element.toString())
 end
 
@@ -192,7 +191,7 @@ end
 
 true ? 123 : 34
 false ? 234 : 34
-!true
+not true
 -123
 +34
 nothing

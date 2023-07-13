@@ -1,7 +1,7 @@
 import { Attribute } from "./parser";
 import { SourceLocation } from "./source";
 import { BoolToken, IdentifierToken, NothingToken, NumberToken, OperatorToken, StringToken, Token } from "./tokenizer";
-import { Type, UnknownType } from "./types";
+import { NameAndType, NamedType, Type, UnknownType } from "./types";
 
 export type AstNode = ImportNode | ImportedNameNode | NameAndTypeNode | TypeSpecifierNode | TopLevelNode;
 
@@ -185,8 +185,8 @@ export class ForNode extends BaseAstNode {
   constructor(
     firstToken: Token,
     public readonly identifier: IdentifierToken,
-    public readonly startExpression: ExpressionNode,
-    public readonly endExpression: ExpressionNode,
+    public readonly from: ExpressionNode,
+    public readonly to: ExpressionNode,
     public readonly step: ExpressionNode | null,
     public readonly block: StatementNode[],
     lastToken: Token
@@ -464,8 +464,8 @@ export function traverseAst(node: AstNode, callback: (node: AstNode) => boolean)
       }
       break;
     case "for":
-      traverseAst(node.startExpression, callback);
-      traverseAst(node.endExpression, callback);
+      traverseAst(node.from, callback);
+      traverseAst(node.to, callback);
       if (node.step) traverseAst(node.step, callback);
       for (const statement of node.block) {
         traverseAst(statement, callback);

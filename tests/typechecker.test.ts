@@ -106,7 +106,7 @@ describe("Typechecker tests", () => {
       })
     );
     expect(errors.length).toBe(1);
-    expect(errors[0].message).toEqual("All types in a mixin must be a record.");
+    expect(errors[0].message).toEqual("All types in a mixin must be a record, but found 'number'.");
   });
 
   it("Should error on circular types", () => {
@@ -197,6 +197,6 @@ describe("Typechecker tests", () => {
       })
     );
     expect(errors.length).toBe(1);
-    expect(errors[0].message).toEqual("Duplicate type 'a', first defined in source.lf:2");
+    expect(errors[0].message).toEqual("Duplicate type 'a', first defined in source.lf:2.");
   });
 });

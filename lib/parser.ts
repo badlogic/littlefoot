@@ -344,9 +344,9 @@ function parseFor(stream: TokenStream) {
   } else {
     const identifier = stream.expectType(IdentifierToken);
     stream.expectValue("from");
-    const start = parseExpression(stream);
+    const from = parseExpression(stream);
     stream.expectValue("to");
-    const end = parseExpression(stream);
+    const to = parseExpression(stream);
     let step = null;
     if (stream.matchValue("step", true)) {
       step = parseExpression(stream);
@@ -357,7 +357,7 @@ function parseFor(stream: TokenStream) {
       block.push(parseStatement(stream));
     }
     const lastToken = stream.expectValue("end");
-    return new ForNode(firstToken, identifier, start, end, step, block, lastToken);
+    return new ForNode(firstToken, identifier, from, to, step, block, lastToken);
   }
 }
 
@@ -379,7 +379,7 @@ function parseTernaryOperator(stream: TokenStream, context: ExpressionContext): 
   }
 }
 
-const binaryOperatorPrecedence = [["="], ["|", "&", "^"], ["==", "!="], ["<", "<=", ">", ">="], ["+", "-"], ["/", "*", "%"], ["is"]];
+const binaryOperatorPrecedence = [["="], ["or", "and", "xor"], ["==", "!="], ["<", "<=", ">", ">="], ["+", "-"], ["/", "*", "%"], ["is"]];
 
 function parseBinaryOperator(stream: TokenStream, level: number, context: ExpressionContext): ExpressionNode {
   const nextLevel = level + 1;
@@ -401,7 +401,7 @@ function parseBinaryOperator(stream: TokenStream, level: number, context: Expres
   return leftExpression;
 }
 
-const unaryOperators = ["!", "+", "-"];
+const unaryOperators = ["not", "+", "-"];
 
 function parseUnaryOperator(stream: TokenStream, context: ExpressionContext) {
   if (stream.matchValues(unaryOperators)) {

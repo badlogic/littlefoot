@@ -223,7 +223,7 @@ export class Types {
   }
 }
 
-function isEqual(a: Type, b: Type) {
+export function isEqual(a: Type, b: Type) {
   // Unpack the type of named types.
   if (a.kind == "named function" || a.kind == "named type") {
     a = a.type;
@@ -296,7 +296,7 @@ function isEqual(a: Type, b: Type) {
   }
 }
 
-function isAssignableTo(a: Type, b: Type) {
+export function isAssignableTo(a: Type, b: Type) {
   if (a.kind == "named function" || a.kind == "named type") {
     a = a.type;
   }
