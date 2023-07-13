@@ -1,4 +1,5 @@
 import { AstNode, FunctionNode, TypeNode, TypeSpecifierNode } from "./ast";
+import { LittleFootError } from "./error";
 import { SourceLocation } from "./source";
 
 export abstract class BaseType {
@@ -196,8 +197,97 @@ export function traverseType(type: Type, callback: (type: Type) => boolean) {
   }
 }
 
+export class Functions {
+  public readonly lookup = new Map<String, NamedFunction[]>();
+
+  has(name: string) {
+    return this.lookup.has(name);
+  }
+
+  hasExact(name: string, signature: string) {
+    const funcs = this.lookup.get(name);
+    if (!funcs) return false;
+
+    for (const func of funcs) {
+      if (func.signature == signature) return true;
+    }
+    return false;
+  }
+
+  get(name: string) {
+    return this.lookup.get(name);
+  }
+
+  getExact(name: string, signature: string) {
+    const funcs = this.lookup.get(name);
+    if (!funcs) return false;
+
+    for (const func of funcs) {
+      if (func.signature == signature) return func;
+    }
+    return false;
+  }
+
+  getClosest(name: string, args: Type[], returnType: Type | null) {
+    const funcs = this.lookup.get(name);
+    if (!funcs) return null;
+
+    const scoredFunctions: { score: number; func: NamedFunction }[] = [];
+    for (const func of funcs) {
+      const score = this.scoreFunction(func, args, returnType);
+      if (score != Number.MAX_VALUE) {
+        scoredFunctions.push({ score, func });
+      }
+    }
+    scoredFunctions.sort((a, b) => a.score - b.score);
+    if (scoredFunctions.length == 0) return null;
+    const bestScore = scoredFunctions[0].score;
+    return scoredFunctions.filter((scoredFunc) => scoredFunc.score == bestScore).map((scoredFunc) => scoredFunc.func);
+  }
+
+  private scoreFunction(func: NamedFunction, args: Type[], returnType: Type | null) {
+    if (returnType && !isAssignableTo(func.type.returnType, returnType)) return Number.MAX_VALUE;
+    if (func.type.parameters.length != args.length) return Number.MAX_VALUE;
+
+    let match = true;
+    let score = 0;
+    for (let i = 0; i < args.length; i++) {
+      const param = func.type.parameters[i].type;
+      const arg = args[i];
+      if (isEqual(arg, param)) {
+        score += 2;
+      } else if (isAssignableTo(arg, param)) {
+        score += 1;
+      } else {
+        match = false;
+        break;
+      }
+    }
+    if (!match) return Number.MAX_VALUE;
+    return score;
+  }
+
+  add(func: NamedFunction) {
+    if (this.hasExact(func.name, func.signature)) {
+      const otherType = this.getExact(func.name, func.signature)! as NamedFunction;
+      const otherTypeLineIndex = otherType.location.source.indicesToLines(otherType.location.start, otherType.location.end)[0].index;
+      throw new LittleFootError(
+        func.location,
+        `Duplicate function '${func.name}', first defined in ${otherType.location.source.path}:${otherTypeLineIndex}.`
+      );
+    }
+
+    let funcs = this.lookup.get(func.name);
+    if (!funcs) {
+      funcs = [];
+      this.lookup.set(func.name, funcs);
+    }
+    funcs.push(func);
+  }
+}
+
 export class Types {
-  public readonly lookup = new Map<String, PrimitiveType | NamedType | NamedFunction>();
+  public readonly lookup = new Map<String, PrimitiveType | NamedType>();
 
   constructor() {
     this.add(NothingType);
@@ -211,15 +301,17 @@ export class Types {
     return this.lookup.get(name);
   }
 
-  has(signature: string) {
-    return this.lookup.has(signature);
+  has(name: string) {
+    return this.lookup.has(name);
   }
 
-  add(type: PrimitiveType | NamedType | NamedFunction) {
-    if (this.lookup.has(type.signature)) {
-      throw new Error(`Internal compiler error: Type ${type.kind} -> ${type.signature} already exists`);
+  add(type: PrimitiveType | NamedType) {
+    if (this.lookup.has(type.name)) {
+      throw new Error(
+        `Internal compiler error: Type ${type.kind} = ${type.signature} already exists. This should be checked by whoever calls the method.`
+      );
     }
-    this.lookup.set(type.signature, type);
+    this.lookup.set(type.name, type);
   }
 }
 

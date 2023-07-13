@@ -2,16 +2,20 @@ import { AstNode, StatementNode } from "./ast";
 import { LittleFootError } from "./error";
 import { parse } from "./parser";
 import { Source, SourceLoader, SourceLocation } from "./source";
-import { checkTypes } from "./typechecker";
-import { FunctionType, NamedFunction, NothingType, Types } from "./types";
+import { TypeCheckerContext, checkTypes } from "./typechecker";
+import { FunctionType, Functions, NamedFunction, NothingType, Types } from "./types";
 
 export class Module {
-  constructor(public readonly path: string, public readonly ast: AstNode[]) {}
+  constructor(
+    public readonly path: string,
+    public readonly types = new Types(),
+    public readonly functions = new Functions(),
+    public ast: AstNode[] = []
+  ) {}
 }
 
 export class CompilerContext {
   public readonly errors: LittleFootError[] = [];
-  public readonly types = new Types();
   public readonly sources = new Map<String, Source>();
   public readonly modules = new Map<String, Module>();
 
@@ -31,24 +35,19 @@ export function compile(path: string, sourceLoader: SourceLoader) {
   const source = context.getSource(path);
   if (!source) throw new Error(`Couldn't find source with path '${path}'`);
 
-  const ast = parse(source, context.errors);
+  const module = new Module(path);
+  context.modules.set(path, module);
+
+  module.ast = parse(source, context.errors);
 
   // Extract all top level statements into a generated $main function.
-  const mainStatements = ast.filter((node) => {
+  const mainStatements = module.ast.filter((node) => {
     return node.kind != "import" && node.kind != "function declaration" && node.kind != "type declaration";
   });
-  context.types.add(
-    new NamedFunction(
-      "$moduleInit",
-      new FunctionType([], NothingType),
-      mainStatements,
-      false,
-      false,
-      new SourceLocation(source, 0, source.text.length)
-    )
+  module.functions.add(
+    new NamedFunction("$main", new FunctionType([], NothingType), mainStatements, false, false, new SourceLocation(source, 0, source.text.length))
   );
 
-  checkTypes(ast, context);
-  context.modules.set(path, new Module(path, ast));
+  checkTypes(new TypeCheckerContext(module, context));
   return context;
 }

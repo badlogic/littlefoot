@@ -6,8 +6,8 @@ export class FileSourceLoader implements SourceLoader {
   constructor(public readonly baseDir: string) {}
 
   load(sourcePath: string): Source | null {
-    const filePath = path.join(this.baseDir, sourcePath);
+    const filePath = path.resolve(path.join(this.baseDir, sourcePath));
     const content = fs.readFileSync(filePath, "utf-8");
-    return new Source(sourcePath, content);
+    return new Source(filePath, content);
   }
 }

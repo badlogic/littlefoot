@@ -150,7 +150,7 @@ export class VariableNode extends BaseAstNode {
   public kind: "variable declaration" = "variable declaration";
   constructor(
     firstToken: Token,
-    public readonly identifier: IdentifierToken,
+    public readonly name: IdentifierToken,
     public typeNode: TypeSpecifierNode | null,
     public readonly initializer: ExpressionNode,
     public readonly exported = false
@@ -534,6 +534,7 @@ export function traverseAst(node: AstNode, callback: (node: AstNode) => boolean)
       traverseAst(node.keyOrIndex, callback);
       break;
     case "function call":
+      traverseAst(node.target, callback);
       for (const arg of node.args) {
         traverseAst(arg, callback);
       }

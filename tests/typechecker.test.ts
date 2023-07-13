@@ -34,7 +34,7 @@ describe("Typechecker tests", () => {
   });
 
   it("Should type check complex types", () => {
-    const { types, errors } = compile(
+    const { modules, errors } = compile(
       "source.lf",
       new MemorySourceLoader({
         path: "source.lf",
@@ -48,6 +48,7 @@ describe("Typechecker tests", () => {
       })
     );
 
+    const types = modules.get("source.lf")!.types;
     expect(errors.length).toBe(0);
     expect(types.has("shapes")).toBe(true);
     const shapes = types.get("shapes")! as NamedType;
@@ -126,7 +127,7 @@ describe("Typechecker tests", () => {
   });
 
   it("Should validate simple named types", () => {
-    const { types, errors } = compile(
+    const { modules, errors } = compile(
       "source.lf",
       new MemorySourceLoader({
         path: "source.lf",
@@ -140,8 +141,8 @@ describe("Typechecker tests", () => {
         `,
       })
     );
-
     expect(errors.length).toBe(0);
+    const types = modules.get("source.lf")!.types;
 
     const a = types.get("a")! as NamedType;
     expect(a.kind).toBe("named type");
