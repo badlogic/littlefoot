@@ -26,12 +26,6 @@ function compileText(value: string) {
 
   if (errors.length == 0) {
     const ast = modules.get("source.lf")!.ast;
-    for (const node of ast) {
-      traverseAst(node, (n) => {
-        n.type.resolvedSignature;
-        return true;
-      });
-    }
     editor.highlightErrors([]);
     output.innerHTML = JSON.stringify(
       ast,

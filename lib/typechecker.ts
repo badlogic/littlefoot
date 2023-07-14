@@ -915,8 +915,29 @@ function isAssignableTo(from: AstNode, to: Type): boolean {
         }
         return true;
       }
-    } else if (from.kind == "record literal") {
-      return false;
+    } else if (from.kind == "record literal" && to.kind == "record") {
+      if (from.fieldValues.length < to.fields.length) return false;
+      for (let i = 0; i < from.fieldValues.length; i++) {
+        const fieldName = from.fieldNames[i];
+        const fieldValue = from.fieldValues[i];
+        let found = false;
+        for (const toField of to.fields) {
+          if (fieldName.value !== toField.name) continue;
+          if (isAssignableTo(fieldValue, toField.type)) {
+            found = true;
+            break;
+          }
+        }
+        if (!found) return false;
+      }
+      if (from.type.signature.includes("$unknown")) {
+        const type = from.type as RecordType;
+        for (let i = 0; i < from.fieldValues.length; i++) {
+          type.fields[i].type = from.fieldValues[i].type;
+        }
+        (from.type as RecordType).updateSignature();
+      }
+      return true;
     } else {
       return false;
     }

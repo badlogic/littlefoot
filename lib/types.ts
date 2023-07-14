@@ -62,6 +62,16 @@ export class RecordType extends BaseType {
     );
     fields.sort(); // needed for equality and assignability checks
   }
+
+  updateSignature() {
+    this.signature =
+      "<" +
+      this.fields
+        .map((field) => field.name + ":" + field.type.signature)
+        .sort()
+        .join(",") +
+      ">";
+  }
 }
 
 export class FunctionType extends BaseType {
