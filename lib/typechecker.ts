@@ -1,5 +1,5 @@
 // prettier-ignore
-import {AstNode, DoNode, ForEachNode, ForNode, FunctionLiteralNode, FunctionNode, IsOperatorNode, NameAndTypeNode, ReturnNode, TypeNode, TypeSpecifierNode, VariableAccessNode, VariableNode, WhileNode, traverseAst,} from "./ast";
+import {AstNode, DoNode, ForEachNode, ForNode, FunctionLiteralNode, FunctionNode, IsOperatorNode, NameAndTypeNode, RecordLiteralNode, ReturnNode, TypeNode, TypeSpecifierNode, VariableAccessNode, VariableNode, WhileNode, traverseAst,} from "./ast";
 import { CompilerContext, Module } from "./compiler";
 import { LittleFootError } from "./error";
 import { SourceLocation } from "./source";
@@ -27,7 +27,7 @@ export class SymbolScopes {
     this.scopes.pop();
   }
 
-  findSymbol(name: string): Symbol | undefined {
+  get(name: string): Symbol | undefined {
     let scopes = this.scopes;
     for (var i = scopes.length - 1; i >= 0; i--) {
       let scope = scopes[i];
@@ -39,7 +39,7 @@ export class SymbolScopes {
     return undefined;
   }
 
-  addSymbol(node: Symbol) {
+  add(node: Symbol) {
     let scopes = this.scopes;
     for (var i = scopes.length - 1; i >= 0; i--) {
       let scope = scopes[i];
@@ -82,41 +82,21 @@ export function checkTypes(context: TypeCheckerContext) {
   // types may refer to. Set their type to UnknownType.
   const namedTypes: TypeNode[] = ast.filter((node) => node.kind == "type declaration") as TypeNode[];
   for (const type of namedTypes) {
-    if (types.has(type.name.value)) {
-      errors.push(
-        new LittleFootError(type.name.location, `Can not use '${type.name.value}' as a type name, as a built-in type with that name exists.`)
-      );
-    }
-    type.type = new NamedType(type.name.value, UnknownType, type, type.location);
-  }
-
-  // Deduplicate named types. Can't use types.add()/has() yet, as the signature
-  // is incomplete at this point.
-  // FIXME this needs to take into account imported types. Need to check types of
-  // import statements first or do the import stuff in the compiler and add
-  // modules beforehand?
-  const namedTypesLookup = new Map<String, TypeNode>();
-  for (const type of namedTypes) {
-    if (namedTypesLookup.has(type.name.value)) {
-      const otherType = namedTypesLookup.get(type.name.value)!;
-      const otherTypeLineIndex = otherType.location.source.indicesToLines(otherType.name.location.start, otherType.name.location.end)[0].index;
-      errors.push(
-        new LittleFootError(
-          type.name.location,
-          `Duplicate type '${type.name.value}', first defined in ${otherType.location.source.path}:${otherTypeLineIndex}.`
-        )
-      );
-    } else {
-      namedTypesLookup.set(type.name.value, type);
+    try {
+      type.type = new NamedType(type.name.value, UnknownType, type, type.location);
+      types.add(type.type as NamedType);
+    } catch (e) {
+      if (e instanceof LittleFootError) errors.push(e);
+      else
+        errors.push(
+          new LittleFootError(new SourceLocation(type.location.source, 0, 1), "Internal error: " + (e as any).message + "\n" + (e as any).stack)
+        );
+      return;
     }
   }
-  if (errors.length > 0) return;
 
   // For each named type, replace the UnknownType with the real type. Detects circular types
   // in checkNodeTypes() case "type reference".
-  for (const type of namedTypes) {
-    types.add(type.type as NamedType);
-  }
   for (const type of namedTypes) {
     try {
       checkNodeTypes(type, context);
@@ -134,7 +114,7 @@ export function checkTypes(context: TypeCheckerContext) {
   // All named types are defined, assign and check the types of all AST nodes. This will also add all named functions
   // to module.functions, see the "function declaration" case in checkNodeTypes().
   for (const node of ast) {
-    // FIXME recover in case a statement or expression throws an error and type check the remainder of the AST if possible
+    // TODO recover in case a statement or expression throws an error and type check the remainder of the AST if possible
     // This should work for errors within functions. For top-level statements, stop if a var declaration fails.
     try {
       checkNodeTypes(node, context);
@@ -145,8 +125,10 @@ export function checkTypes(context: TypeCheckerContext) {
     }
   }
 
-  // Final check that we have no unknown and named types in the AST.
+  // Finally check that we have no unknown and named types in the AST.
   for (const node of ast) {
+    // Ignore type declaration nodes
+    if (node.kind == "type declaration") continue;
     try {
       traverseAst(node, (node) => {
         traverseType(node.type, (type) => {
@@ -264,14 +246,29 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
       // them here. Set a marker type the first time, so we can detect
       // circular types.
       if (type.type == UnknownType) {
-        type.type = ResolvingTypeMarker;
         checkNodeTypes(type.typeNode, context);
       }
-      // Found a circular type
-      if (type.type == ResolvingTypeMarker) {
-        throw new LittleFootError(type.location, `Type '${type.name}' circularly references itself.`);
-      }
       node.type = type;
+      break;
+    }
+    case "type declaration": {
+      // We set the type of type declaration nodes to new NamedType("name", UnknownType) in
+      // checkTypes(). When we first resolve the type of a type declaration, we check the
+      // type fo the right hand side of the assignement, replace the UnknownType in the
+      // NamedType with it, then assign the plain type to the node itself.
+      // All type declaration nodes are checked a second time as part of iterating over all statements
+      // in the module AST in checkTypes(). We do not have to do anything anymore in that case, as the
+      // type is fully defined and checked.
+      if (node.type.kind == "named type") {
+        const type = types.get(node.name.value)! as NamedType;
+        type.type = ResolvingTypeMarker;
+        checkNodeTypes(node.typeNode, context);
+        if (node.typeNode.type == UnknownType) {
+          throw new LittleFootError(node.name.location, `Internal compiler error: named type '${node.name.value}' should have a type set.`);
+        }
+        (node.type as NamedType).type = node.typeNode.type;
+        node.type = node.typeNode.type;
+      }
       break;
     }
     case "name and type": {
@@ -291,24 +288,6 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
       functions.add(namedFunction);
       break;
     }
-    case "type declaration": {
-      // We set the type of type declaration nodes to new NamedType("name", UnknownType) in
-      // checkTypes(). When we first resolve the type of a type declaration, we check the
-      // type fo the right hand side of the assignement, replace the UnknownType in the
-      // NamedType with it, then assign the plain type to the node itself.
-      // All type declaration nodes are checked a second time as part of iterating over all statements
-      // in the module AST in checkTypes(). We do not have to do anything anymore in that case, as the
-      // type is fully defined and checked.
-      if (node.type.kind == "named type") {
-        checkNodeTypes(node.typeNode, context);
-        if (node.typeNode.type == UnknownType) {
-          throw new LittleFootError(node.name.location, `Internal compiler error: named type '${node.name.value}' should have a type set.`);
-        }
-        (node.type as NamedType).type = node.typeNode.type;
-        node.type = node.typeNode.type;
-      }
-      break;
-    }
     case "variable declaration": {
       checkNodeTypes(node.initializer, context);
       if (node.typeNode) {
@@ -321,9 +300,18 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
           );
         }
       } else {
+        if (node.initializer.kind == "list literal" && node.initializer.elements.length == 0) {
+          throw new LittleFootError(node.name.location, "Can not assign an empty list to a variable without a type.");
+        }
+        if (node.initializer.kind == "map literal" && node.initializer.values.length == 0) {
+          throw new LittleFootError(node.name.location, "Can not assign an empty map to a variable without a type.");
+        }
+        if (node.initializer.kind == "record literal" && hasEmptyListOrMap(node.initializer.type)) {
+          throw new LittleFootError(node.name.location, "Can not assign a record with empty lists or maps to a variable without a type.");
+        }
         node.type = node.initializer.type;
       }
-      scopes.addSymbol(node);
+      scopes.add(node);
       break;
     }
     case "if": {
@@ -336,7 +324,7 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
       const isOperators: { isNegated: boolean; isOperator: IsOperatorNode; oldType: Type }[] = [];
       let negated = false;
       traverseAst(node.condition, (node) => {
-        if (node.kind == "unary operator" && node.operator.value == "!") negated = !negated;
+        if (node.kind == "unary operator" && node.operator.value == "not") negated = !negated;
         if (node.kind == "is operator") {
           isOperators.push({ isNegated: negated, isOperator: node, oldType: node.leftExpression.type });
         }
@@ -350,14 +338,13 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
         if (operator.isOperator.leftExpression.kind != "variable access") {
           throw new LittleFootError(operator.isOperator.leftExpression.location, "Must be a variable.");
         }
-        const variable = operator.isOperator.leftExpression as VariableAccessNode;
-        const variableType = (operator.oldType =
-          variable.type.kind == "named function" || variable.type.kind == "named type" ? variable.type.type : variable.type);
+        const variable = scopes.get((operator.isOperator.leftExpression as VariableAccessNode).name.value)!;
+        const variableType = (operator.oldType = variable.type);
         if (variableType.kind != "union") {
           throw new LittleFootError(operator.isOperator.leftExpression.location, "Variable type must be a union.");
         }
         const narrowedType = operator.isOperator.typeNode.type;
-        if (!isAssignableTo(variable.type, narrowedType)) {
+        if (!isAssignableTo(narrowedType, variable.type)) {
           throw new LittleFootError(
             variable.location,
             `Variable '${variable.name.value}' is a '${variable.type.signature}' and can never be a '${narrowedType.signature}'.`
@@ -366,7 +353,10 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
 
         if (operator.isNegated) {
           const newTypes = variableType.types.filter((type) => !isAssignableTo(type, narrowedType));
-          variable.type = new UnionType(newTypes);
+          if (newTypes.length == 0) {
+            throw new LittleFootError(operator.isOperator.location, `Negation of 'is' operator results in empty type set.`); // FIXME better message
+          }
+          variable.type = newTypes.length == 1 ? newTypes[0] : new UnionType(newTypes);
         } else {
           variable.type = narrowedType;
         }
@@ -380,7 +370,7 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
 
       // Reset the variable types narrowed down in "is" operators
       for (const operator of isOperators) {
-        const variable = operator.isOperator.leftExpression as VariableAccessNode;
+        const variable = scopes.get((operator.isOperator.leftExpression as VariableAccessNode).name.value)!;
         variable.type = operator.oldType;
       }
 
@@ -513,7 +503,7 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
       switch (node.operator.value) {
         case "=":
           if (node.leftExpression.kind == "variable access") {
-            const symbol = scopes.findSymbol(node.leftExpression.name.value);
+            const symbol = scopes.get(node.leftExpression.name.value);
             if (!symbol) {
               throw new LittleFootError(node.leftExpression.name.location, `Could not find variable '${node.leftExpression.name.value}'.`);
             }
@@ -535,11 +525,17 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
               if (!isAssignableTo(node.rightExpression.type, node.leftExpression.target.type.elementType)) {
                 `Can not assign a '${node.rightExpression.type.signature}' to an array with '${node.leftExpression.target.type.elementType.signature}'`;
               }
+            } else if (node.leftExpression.target.type.kind == "map") {
+              if (!isAssignableTo(node.rightExpression.type, node.leftExpression.target.type.valueType)) {
+                `Can not assign a '${node.rightExpression.type.signature}' to an array with '${node.leftExpression.target.type.valueType.signature}'`;
+              }
+            } else {
+              throw new LittleFootError(node.leftExpression.target.location, `Can not use [] operator on a '${node.leftExpression.target.type}'.`);
             }
           } else {
             throw new LittleFootError(node.leftExpression.location, "Left side of assignment must be a variable, record field, list, or map.");
           }
-          node.type == node.leftExpression.type;
+          node.type = node.leftExpression.type;
           break;
         case "or":
         case "and":
@@ -655,7 +651,7 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
       if (elementTypes.length == 1) {
         node.type = new ListType(elementTypes[0]);
       } else {
-        node.type = new ListType(new UnionType(elementTypes));
+        node.type = new ListType(elementTypes.length == 0 ? UnknownType : new UnionType(elementTypes));
       }
       break;
     }
@@ -672,7 +668,7 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
       if (valueTypes.length == 1) {
         node.type = new MapType(valueTypes[0]);
       } else {
-        node.type = new MapType(new UnionType(valueTypes));
+        node.type = new MapType(valueTypes.length == 0 ? UnknownType : new UnionType(valueTypes));
       }
       break;
     }
@@ -690,7 +686,7 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
       node.type = checkFunctionNode(node, context);
       break;
     case "variable access":
-      const symbol = scopes.findSymbol(node.name.value);
+      const symbol = scopes.get(node.name.value);
       if (!symbol) {
         throw new LittleFootError(node.name.location, `Could not find variable '${node.name.value}'.`);
       }
@@ -747,7 +743,7 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
       if (node.target.kind == "variable access") {
         // if the target is a variable name, first check if
         // there's one in the scope. If so, check it's type
-        const symbol = scopes.findSymbol(node.target.name.value);
+        const symbol = scopes.get(node.target.name.value);
         if (symbol) {
           if (symbol.type.kind != "function") {
             throw new LittleFootError(node.target.name.location, `'${node.target.name.location}' is not a function.`);
@@ -772,12 +768,23 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
             null
           );
           if (!closestFunc) {
-            // FIXME better error message, show candidates
-            throw new LittleFootError(node.location, `Could not find function '${node.target.name.value}' with matching parameters.`);
+            throw new LittleFootError(
+              node.location,
+              `Could not find function '${node.target.name.value}' with matching parameters (${node.args
+                .map((arg) => arg.type.signature)
+                .join(",")}). Candidates: \n${functions
+                .get(node.target.name.value)
+                ?.map((func) => "\t" + func.signature)
+                .join("\n")}`
+            );
           }
           if (closestFunc.length > 1) {
-            // FIXME better error message, detail which functions conflict, suggest resolution.
-            throw new LittleFootError(node.location, `More than one function called '${node.target.name.value}' found.`);
+            throw new LittleFootError(
+              node.location,
+              `More than one function called '${node.target.name.value}' matches the arguments. Candidates: \n${closestFunc
+                .map((func) => "\t" + func.signature)
+                .join("\n")}`
+            );
           }
           node.target.type = closestFunc[0].type;
           node.type = closestFunc[0].type.returnType;
@@ -798,7 +805,7 @@ function checkFunctionNode(node: FunctionLiteralNode | FunctionNode, context: Ty
   context.scopes.push();
   for (const parameter of node.parameters) {
     checkNodeTypes(parameter, context);
-    context.scopes.addSymbol(parameter);
+    context.scopes.add(parameter);
   }
 
   if (node.returnType) checkNodeTypes(node.returnType, context);

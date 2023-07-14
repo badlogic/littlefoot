@@ -80,18 +80,18 @@ describe("Typechecker tests", () => {
     expect(types.has("rectangle")).toBe(true);
     const rectangle = types.get("rectangle")! as NamedType;
     expect(rectangle.type.kind).toBe("record");
-    expect(rectangle.type.resolvedSignature).toStrictEqual(
+    expect(rectangle.type).toStrictEqual(
       new RecordType([
         new NameAndType("color", types.get("color")!),
         new NameAndType("width", types.get("number")!),
         new NameAndType("height", types.get("number")!),
-      ]).resolvedSignature
+      ])
     );
     expect(types.has("circle")).toBe(true);
     const circle = types.get("circle")! as NamedType;
     expect(circle.type.kind).toBe("record");
-    expect(circle.type.resolvedSignature).toStrictEqual(
-      new RecordType([new NameAndType("color", types.get("color")!), new NameAndType("radius", types.get("number")!)]).resolvedSignature
+    expect(circle.type).toStrictEqual(
+      new RecordType([new NameAndType("color", types.get("color")!), new NameAndType("radius", types.get("number")!)])
     );
   });
 

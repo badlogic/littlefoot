@@ -426,6 +426,7 @@ function parseAccessOrCallOrLiteral(stream: TokenStream) {
     const keys: StringToken[] = [];
     const values: ExpressionNode[] = [];
     while (stream.hasMore()) {
+      if (stream.matchValue("}")) break;
       const key = stream.expectType(StringToken);
       stream.expectValue(":");
       const value = parseExpression(stream);

@@ -35,7 +35,12 @@ function compileText(value: string) {
     editor.highlightErrors([]);
     output.innerHTML = JSON.stringify(
       ast,
-      (key, value) => (key == "source" || key == "firstToken" || key == "lastToken" || key == "typeNode" || key == "code" ? undefined : value),
+      (key, value) => {
+        if (key == "source" || key == "location" || key == "typeNode") return undefined;
+        if (key == "type" && value.signature) return value.signature;
+        if (key == "name" && value.value) return value.value;
+        return value;
+      },
       2
     )
       .replace(/</g, "&lt;")

@@ -3,17 +3,7 @@ import { LittleFootError } from "./error";
 import { SourceLocation } from "./source";
 
 export abstract class BaseType {
-  private _resolvedSignature: string | null = null;
-
-  constructor(public readonly signature: string) {}
-
-  get resolvedSignature() {
-    if (!this._resolvedSignature) {
-      this._resolvedSignature = this.resolveSignature();
-    }
-    return this._resolvedSignature;
-  }
-  protected abstract resolveSignature(): string;
+  constructor(public signature: string) {}
 }
 
 export class NameAndType {
@@ -35,24 +25,26 @@ export class PrimitiveType extends BaseType {
 export class ListType extends BaseType {
   public readonly kind: "list" = "list";
 
-  constructor(public readonly elementType: Type) {
+  constructor(public elementType: Type) {
     super("[" + elementType.signature + "]");
   }
 
-  protected resolveSignature(): string {
-    return "[" + this.elementType.resolvedSignature + "]";
+  setElementType(elementType: Type) {
+    this.elementType = elementType;
+    this.signature = "[" + elementType.signature + "]";
   }
 }
 
 export class MapType extends BaseType {
   public readonly kind: "map" = "map";
 
-  constructor(public readonly valueType: Type) {
+  constructor(public valueType: Type) {
     super("{" + valueType.signature + "}");
   }
 
-  protected resolveSignature(): string {
-    return "[" + this.valueType.resolvedSignature + "]";
+  setValueType(valueType: Type) {
+    this.valueType = valueType;
+    this.signature = "{" + valueType.signature + "}";
   }
 }
 
@@ -70,17 +62,6 @@ export class RecordType extends BaseType {
     );
     fields.sort(); // needed for equality and assignability checks
   }
-
-  protected resolveSignature(): string {
-    return (
-      "<" +
-      this.fields
-        .map((field) => field.name + ":" + field.type.resolvedSignature)
-        .sort()
-        .join(",") +
-      ">"
-    );
-  }
 }
 
 export class FunctionType extends BaseType {
@@ -88,10 +69,6 @@ export class FunctionType extends BaseType {
 
   constructor(public readonly parameters: NameAndType[], public returnType: Type) {
     super("(" + parameters.map((param) => param.type.signature).join(",") + "):" + returnType.signature);
-  }
-
-  protected resolveSignature(): string {
-    return "(" + this.parameters.map((param) => param.type.resolvedSignature).join(",") + "):" + this.returnType.resolvedSignature;
   }
 }
 
@@ -106,13 +83,6 @@ export class UnionType extends BaseType {
         .join("|")
     );
   }
-
-  protected resolveSignature(): string {
-    return this.types
-      .map((type) => type.resolvedSignature)
-      .sort()
-      .join("|");
-  }
 }
 
 export class NamedType extends BaseType {
@@ -120,10 +90,6 @@ export class NamedType extends BaseType {
 
   constructor(public readonly name: string, public type: Type, public typeNode: TypeNode, public readonly location: SourceLocation) {
     super(name);
-  }
-
-  protected resolveSignature(): string {
-    return this.type.resolvedSignature;
   }
 }
 
@@ -139,10 +105,6 @@ export class NamedFunction extends BaseType {
     public readonly location: SourceLocation
   ) {
     super(name + type.signature);
-  }
-
-  protected resolveSignature(): string {
-    return this.type.resolvedSignature;
   }
 }
 
@@ -306,12 +268,26 @@ export class Types {
   }
 
   add(type: PrimitiveType | NamedType) {
-    if (this.lookup.has(type.name)) {
-      throw new Error(
-        `Internal compiler error: Type ${type.kind} = ${type.signature} already exists. This should be checked by whoever calls the method.`
-      );
+    if (this.has(type.name)) {
+      const otherType = this.get(type.name)!;
+      if (otherType.kind == "primitive") {
+        if (type.kind != "primitive")
+          throw new LittleFootError(type.location, `Can not use '${type.name}' as a type name, as a built-in type with that name exists.`);
+        else throw new Error("Tried to add a built-in type twice");
+      } else {
+        if (type.kind != "primitive") {
+          const otherTypeLineIndex = otherType.location.source.indicesToLines(otherType.location.start, otherType.location.end)[0].index;
+          throw new LittleFootError(
+            type.location,
+            `Duplicate type '${type.name}', first defined in ${otherType.location.source.path}:${otherTypeLineIndex}.`
+          );
+        } else {
+          throw new Error("Tried to add a built-in type twice");
+        }
+      }
+    } else {
+      this.lookup.set(type.name, type);
     }
-    this.lookup.set(type.name, type);
   }
 }
 
@@ -388,20 +364,25 @@ export function isEqual(a: Type, b: Type) {
   }
 }
 
-export function isAssignableTo(a: Type, b: Type) {
-  if (a.kind == "named function" || a.kind == "named type") {
-    a = a.type;
+// If from is a List and map with element/valueType == UnknownType,
+// its element/valueType will be set to `to`'s element/valueType
+// and it will be reported to be assignable. This allows empty
+// list and map literals to be assigned to variables, fields,
+// function arguments and so on.
+export function isAssignableTo(from: Type, to: Type) {
+  if (from.kind == "named function" || from.kind == "named type") {
+    from = from.type;
   }
-  if (b.kind == "named function" || b.kind == "named type") {
-    b = b.type;
+  if (to.kind == "named function" || to.kind == "named type") {
+    to = to.type;
   }
 
   // This handles primitives and is also an early out for
   // exact type matches. This also handles exact record matches
   // Non-exact matches are handled below.
-  if (isEqual(a, b)) return true;
+  if (isEqual(from, to)) return true;
 
-  if (b.kind == "union") {
+  if (to.kind == "union") {
     // If a is a union and b is not, it can not be assigned.
     // This is why we start by check if b is a union.
     //
@@ -410,15 +391,15 @@ export function isAssignableTo(a: Type, b: Type) {
     //    to at least one type in the union.
     // 2. If a is a union, then all of a's types must be
     //    assignable to at least one type in b.
-    if (a.kind != "union") {
-      for (const type of b.types) {
-        if (isAssignableTo(type, a)) return true;
+    if (from.kind != "union") {
+      for (const type of to.types) {
+        if (isAssignableTo(type, from)) return true;
       }
       return false;
     } else {
-      for (const aType of a.types) {
+      for (const aType of from.types) {
         let found = false;
-        for (const bType of b.types) {
+        for (const bType of to.types) {
           if (isAssignableTo(aType, bType)) {
             found = true;
             break;
@@ -428,43 +409,66 @@ export function isAssignableTo(a: Type, b: Type) {
       }
       return true;
     }
-  } else if (a.kind == "list" && b.kind == "list") {
+  } else if (from.kind == "list" && to.kind == "list") {
     // For lists, the element type of a must be assignable to
     // element type of b.
-    return isAssignableTo(a.elementType, b.elementType);
-  } else if (a.kind == "map" && b.kind == "map") {
+    if (from.elementType == UnknownType) {
+      from.setElementType(to.elementType);
+    }
+    return isAssignableTo(from.elementType, to.elementType);
+  } else if (from.kind == "map" && to.kind == "map") {
     // For maps, the value type of a must be assignable to
     // value types of b.
-    return isAssignableTo(a.valueType, b.valueType);
-  } else if (a.kind == "record" && b.kind == "record") {
+    if (from.valueType == UnknownType) {
+      from.setValueType(to.valueType);
+    }
+    return isAssignableTo(from.valueType, to.valueType);
+  } else if (from.kind == "record" && to.kind == "record") {
     // We only get here if isEqual(a, b) was false, which means
     // the two record types don't have the same number or exact
     // types of fields.
     //
     // However, if we can assign all fields of a to a subset of fields
     // of record b, we can assign a to b.
-    for (const aField of a.fields) {
+    for (const aField of from.fields) {
       let found = false;
-      for (const bField of b.fields) {
+      for (const bField of to.fields) {
         if (isAssignableTo(aField.type, bField.type)) {
           found = true;
           break;
         }
       }
       if (!found) return false;
+      return true;
     }
-  } else if (a.kind == "function" && b.kind == "function") {
+  } else if (from.kind == "function" && to.kind == "function") {
     // For functions, the number of parameters must match,
     // and the parameter types of a must be assignable to
     // the parameter types of b. The return type of a must
     // also be assignable to b. The parameter names do not matter.
-    if (a.parameters.length != b.parameters.length) return false;
-    for (let i = 0; i < a.parameters.length; i++) {
-      if (!isAssignableTo(a.parameters[i].type, b.parameters[i].type)) return false;
+    if (from.parameters.length != to.parameters.length) return false;
+    for (let i = 0; i < from.parameters.length; i++) {
+      if (!isAssignableTo(from.parameters[i].type, to.parameters[i].type)) return false;
     }
-    if (!isAssignableTo(a.returnType, b.returnType)) return false;
+    if (!isAssignableTo(from.returnType, to.returnType)) return false;
     return true;
   } else {
     return false;
   }
+}
+
+export function hasEmptyListOrMap(type: Type) {
+  let found = false;
+  traverseType(type, (type) => {
+    if (type.kind == "list" && type.elementType == UnknownType) {
+      found = true;
+      return false;
+    }
+    if (type.kind == "map" && type.valueType == UnknownType) {
+      found = true;
+      return false;
+    }
+    return true;
+  });
+  return found;
 }
