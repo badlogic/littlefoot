@@ -302,14 +302,20 @@ export class NothingLiteralNode extends BaseAstNode {
 
 export class ListLiteralNode extends BaseAstNode {
   public readonly kind: "list literal" = "list literal";
-  constructor(firstToken: Token, public readonly elements: ExpressionNode[], lastToken: Token) {
+  constructor(firstToken: Token, public readonly elements: ExpressionNode[], public readonly typeNode: TypeSpecifierNode | null, lastToken: Token) {
     super(SourceLocation.from(firstToken.location, lastToken.location));
   }
 }
 
 export class MapLiteralNode extends BaseAstNode {
   public readonly kind: "map literal" = "map literal";
-  constructor(firstToken: Token, public readonly keys: StringToken[], public readonly values: ExpressionNode[], lastToken: Token) {
+  constructor(
+    firstToken: Token,
+    public readonly keys: StringToken[],
+    public readonly values: ExpressionNode[],
+    public readonly typeNode: TypeSpecifierNode | null,
+    lastToken: Token
+  ) {
     super(SourceLocation.from(firstToken.location, lastToken.location));
   }
 }
@@ -504,11 +510,13 @@ export function traverseAst(node: AstNode, callback: (node: AstNode) => boolean)
       for (const element of node.elements) {
         traverseAst(element, callback);
       }
+      if (node.typeNode) traverseAst(node.typeNode, callback);
       break;
     case "map literal":
       for (let i = 0; i < node.values.length; i++) {
         traverseAst(node.values[i], callback);
       }
+      if (node.typeNode) traverseAst(node.typeNode, callback);
       break;
     case "record literal":
       for (let i = 0; i < node.fieldValues.length; i++) {

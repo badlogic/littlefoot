@@ -423,31 +423,46 @@ function parseAccessOrCallOrLiteral(stream: TokenStream) {
   if (stream.matchValue("{")) {
     const firstToken = stream.expectValue("{");
 
-    const keys: StringToken[] = [];
-    const values: ExpressionNode[] = [];
-    while (stream.hasMore()) {
-      if (stream.matchValue("}")) break;
-      const key = stream.expectType(StringToken);
-      stream.expectValue(":");
-      const value = parseExpression(stream);
-      keys.push(key);
-      values.push(value);
-      if (stream.matchValue("}")) break;
-      stream.expectValue(",");
+    // Empty map literals with type specifier
+    if (stream.matchValue(":", true)) {
+      const typeNode = parseTypeSpecifier(stream);
+      const lastToken = stream.expectValue("}");
+      return new MapLiteralNode(firstToken, [], [], typeNode, lastToken);
+    } else {
+      const keys: StringToken[] = [];
+      const values: ExpressionNode[] = [];
+      while (stream.hasMore()) {
+        if (stream.matchValue("}")) break;
+        const key = stream.expectType(StringToken);
+        stream.expectValue(":");
+        const value = parseExpression(stream);
+        keys.push(key);
+        values.push(value);
+        if (stream.matchValue("}")) break;
+        stream.expectValue(",");
+      }
+      const lastToken = stream.expectValue("}");
+      return new MapLiteralNode(firstToken, keys, values, null, lastToken);
     }
-    const lastToken = stream.expectValue("}");
-    return new MapLiteralNode(firstToken, keys, values, lastToken);
   } else if (stream.matchValue("[")) {
     const firstToken = stream.expectValue("[");
-    const elements = [];
-    while (stream.hasMore()) {
-      if (stream.matchValue("]")) break;
-      elements.push(parseExpression(stream));
-      if (stream.matchValue("]")) break;
-      stream.expectValue(",");
+
+    // Empty list literal with type specifier
+    if (stream.matchValue(":", true)) {
+      const typeNode = parseTypeSpecifier(stream);
+      const lastToken = stream.expectValue("]");
+      return new ListLiteralNode(firstToken, [], typeNode, lastToken);
+    } else {
+      const elements: ExpressionNode[] = [];
+      while (stream.hasMore()) {
+        if (stream.matchValue("]")) break;
+        elements.push(parseExpression(stream));
+        if (stream.matchValue("]")) break;
+        stream.expectValue(",");
+      }
+      const lastToken = stream.expectValue("]");
+      return new ListLiteralNode(firstToken, elements, null, lastToken);
     }
-    const lastToken = stream.expectValue("]");
-    return new ListLiteralNode(firstToken, elements, lastToken);
   } else if (stream.matchType(RecordOpeningToken)) {
     const firstToken = stream.expectType(RecordOpeningToken);
     const fieldNames: IdentifierToken[] = [];

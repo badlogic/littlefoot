@@ -369,7 +369,7 @@ export function isEqual(a: Type, b: Type) {
 // and it will be reported to be assignable. This allows empty
 // list and map literals to be assigned to variables, fields,
 // function arguments and so on.
-export function isAssignableTo(from: Type, to: Type) {
+export function isAssignableTo(from: Type, to: Type): boolean {
   if (from.kind == "named function" || from.kind == "named type") {
     from = from.type;
   }
@@ -383,17 +383,17 @@ export function isAssignableTo(from: Type, to: Type) {
   if (isEqual(from, to)) return true;
 
   if (to.kind == "union") {
-    // If a is a union and b is not, it can not be assigned.
-    // This is why we start by check if b is a union.
+    // If `from` is a union and `to` is not, it can not be assigned.
+    // This is why we start by checking if `to` is a union.
     //
     // There are two cases:
-    // 1. If a is not a union, then it must be assignable
-    //    to at least one type in the union.
-    // 2. If a is a union, then all of a's types must be
-    //    assignable to at least one type in b.
+    // 1. If `from` is not a union, then it must be assignable
+    //    to at least one type in the `to` union.
+    // 2. If `from` is a union, then all of `from`'s types must be
+    //    assignable to at least one type in `to`.
     if (from.kind != "union") {
       for (const type of to.types) {
-        if (isAssignableTo(type, from)) return true;
+        if (isAssignableTo(from, type)) return true;
       }
       return false;
     } else {
@@ -410,18 +410,11 @@ export function isAssignableTo(from: Type, to: Type) {
       return true;
     }
   } else if (from.kind == "list" && to.kind == "list") {
-    // For lists, the element type of a must be assignable to
-    // element type of b.
-    if (from.elementType == UnknownType) {
-      from.setElementType(to.elementType);
-    }
+    // For lists, the element type must be equal.
     return isAssignableTo(from.elementType, to.elementType);
   } else if (from.kind == "map" && to.kind == "map") {
     // For maps, the value type of a must be assignable to
     // value types of b.
-    if (from.valueType == UnknownType) {
-      from.setValueType(to.valueType);
-    }
     return isAssignableTo(from.valueType, to.valueType);
   } else if (from.kind == "record" && to.kind == "record") {
     // We only get here if isEqual(a, b) was false, which means
@@ -430,6 +423,9 @@ export function isAssignableTo(from: Type, to: Type) {
     //
     // However, if we can assign all fields of a to a subset of fields
     // of record b, we can assign a to b.
+    // FIXME this is wrong for assignments I think?
+    // var v: <x: number, y: number> = <x: 0, y: 0, z: 0>
+    if (from.fields.length < to.fields.length) return false;
     for (const aField of from.fields) {
       let found = false;
       for (const bField of to.fields) {
@@ -455,6 +451,7 @@ export function isAssignableTo(from: Type, to: Type) {
   } else {
     return false;
   }
+  return false;
 }
 
 export function hasEmptyListOrMap(type: Type) {

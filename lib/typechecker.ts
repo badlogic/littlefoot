@@ -4,7 +4,7 @@ import { CompilerContext, Module } from "./compiler";
 import { LittleFootError } from "./error";
 import { SourceLocation } from "./source";
 // prettier-ignore
-import { BooleanType, FunctionType, ListType, MapType, NameAndType, NamedFunction, NamedType, NothingType, NumberType, RecordType, ResolvingTypeMarker, StringType, Type, UnionType, UnknownType, isAssignableTo, isEqual, traverseType } from "./types";
+import { BooleanType, FunctionType, ListType, MapType, NameAndType, NamedFunction, NamedType, NothingType, NumberType, RecordType, ResolvingTypeMarker, StringType, Type, UnionType, UnknownType, isAssignableTo as typeIsAssignableTo, isEqual, traverseType } from "./types";
 
 function assertNever(x: never) {
   throw new Error("Unexpected object: " + x);
@@ -293,7 +293,7 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
       if (node.typeNode) {
         checkNodeTypes(node.typeNode, context);
         node.type = node.typeNode.type;
-        if (!isAssignableTo(node.initializer.type, node.type)) {
+        if (!isAssignableTo(node.initializer, node.type)) {
           throw new LittleFootError(
             node.initializer.location,
             `Can not assign a '${node.initializer.type.signature}' to a '${node.type.signature}'.`
@@ -301,10 +301,14 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
         }
       } else {
         if (node.initializer.kind == "list literal" && node.initializer.elements.length == 0) {
-          throw new LittleFootError(node.name.location, "Can not assign an empty list to a variable without a type.");
+          if (!node.initializer.typeNode) {
+            throw new LittleFootError(node.name.location, "Can not assign an empty list without a type to a variable without a type.");
+          }
         }
         if (node.initializer.kind == "map literal" && node.initializer.values.length == 0) {
-          throw new LittleFootError(node.name.location, "Can not assign an empty map to a variable without a type.");
+          if (!node.initializer.typeNode) {
+            throw new LittleFootError(node.name.location, "Can not assign an empty map to a variable without a type.");
+          }
         }
         if (node.initializer.kind == "record literal" && hasEmptyListOrMap(node.initializer.type)) {
           throw new LittleFootError(node.name.location, "Can not assign a record with empty lists or maps to a variable without a type.");
@@ -344,7 +348,7 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
           throw new LittleFootError(operator.isOperator.leftExpression.location, "Variable type must be a union.");
         }
         const narrowedType = operator.isOperator.typeNode.type;
-        if (!isAssignableTo(narrowedType, variable.type)) {
+        if (!isAssignableTo(operator.isOperator.typeNode, variable.type)) {
           throw new LittleFootError(
             variable.location,
             `Variable '${variable.name.value}' is a '${variable.type.signature}' and can never be a '${narrowedType.signature}'.`
@@ -352,7 +356,7 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
         }
 
         if (operator.isNegated) {
-          const newTypes = variableType.types.filter((type) => !isAssignableTo(type, narrowedType));
+          const newTypes = variableType.types.filter((type) => !isAssignableTo(variable, narrowedType));
           if (newTypes.length == 0) {
             throw new LittleFootError(operator.isOperator.location, `Negation of 'is' operator results in empty type set.`); // FIXME better message
           }
@@ -507,14 +511,14 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
             if (!symbol) {
               throw new LittleFootError(node.leftExpression.name.location, `Could not find variable '${node.leftExpression.name.value}'.`);
             }
-            if (!isAssignableTo(node.rightExpression.type, node.leftExpression.type)) {
+            if (!isAssignableTo(node.rightExpression, node.leftExpression.type)) {
               throw new LittleFootError(
                 node.rightExpression.location,
                 `Can not assign a '${node.rightExpression.type.signature}' to a '${node.leftExpression.type.signature}'`
               );
             }
           } else if (node.leftExpression.kind == "member access") {
-            if (!isAssignableTo(node.rightExpression.type, node.leftExpression.type)) {
+            if (!isAssignableTo(node.rightExpression, node.leftExpression.type)) {
               throw new LittleFootError(
                 node.rightExpression.location,
                 `Can not assign a '${node.rightExpression.type.signature}' to a '${node.leftExpression.type.signature}'`
@@ -522,11 +526,11 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
             }
           } else if (node.leftExpression.kind == "map or list access") {
             if (node.leftExpression.target.type.kind == "list") {
-              if (!isAssignableTo(node.rightExpression.type, node.leftExpression.target.type.elementType)) {
+              if (!isAssignableTo(node.rightExpression, node.leftExpression.target.type.elementType)) {
                 `Can not assign a '${node.rightExpression.type.signature}' to an array with '${node.leftExpression.target.type.elementType.signature}'`;
               }
             } else if (node.leftExpression.target.type.kind == "map") {
-              if (!isAssignableTo(node.rightExpression.type, node.leftExpression.target.type.valueType)) {
+              if (!isAssignableTo(node.rightExpression, node.leftExpression.target.type.valueType)) {
                 `Can not assign a '${node.rightExpression.type.signature}' to an array with '${node.leftExpression.target.type.valueType.signature}'`;
               }
             } else {
@@ -648,10 +652,12 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
           elementTypes.push(element.type);
         }
       }
-      if (elementTypes.length == 1) {
-        node.type = new ListType(elementTypes[0]);
+      if (node.typeNode) checkNodeTypes(node.typeNode, context);
+      if (elementTypes.length == 0) {
+        if (node.typeNode) node.type = new ListType(node.typeNode.type);
+        else node.type = new ListType(UnknownType);
       } else {
-        node.type = new ListType(elementTypes.length == 0 ? UnknownType : new UnionType(elementTypes));
+        node.type = new ListType(elementTypes.length == 1 ? elementTypes[0] : new UnionType(elementTypes));
       }
       break;
     }
@@ -665,10 +671,12 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
           valueTypes.push(element.type);
         }
       }
-      if (valueTypes.length == 1) {
-        node.type = new MapType(valueTypes[0]);
+      if (node.typeNode) checkNodeTypes(node.typeNode, context);
+      if (valueTypes.length == 0) {
+        if (node.typeNode) node.type = new MapType(node.typeNode.type);
+        else node.type = new MapType(UnknownType);
       } else {
-        node.type = new MapType(valueTypes.length == 0 ? UnknownType : new UnionType(valueTypes));
+        node.type = new MapType(valueTypes.length == 1 ? valueTypes[0] : new UnionType(valueTypes));
       }
       break;
     }
@@ -755,7 +763,7 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
           for (let i = 0; i < node.args.length; i++) {
             const arg = node.args[i];
             const param = functionType.parameters[i];
-            if (!isAssignableTo(arg.type, param.type)) {
+            if (!isAssignableTo(arg, param.type)) {
               throw new LittleFootError(arg.location, `Expected a ${param.type.signature}, got a ${arg.type.signature}`);
             }
           }
@@ -823,7 +831,7 @@ function checkFunctionNode(node: FunctionLiteralNode | FunctionNode, context: Ty
     for (const statement of node.code) {
       traverseAst(statement, (node) => {
         if (node.kind == "return") {
-          if (!isAssignableTo(node.type, returnType)) {
+          if (!isAssignableTo(node, returnType)) {
             throw new LittleFootError(
               node.location,
               `Can not return a value of type '${node.type.signature}' from a function with return type '${returnType.signature}'.`
@@ -861,4 +869,74 @@ function checkFunctionNode(node: FunctionLiteralNode | FunctionNode, context: Ty
     node.type = functionType;
     return functionType;
   }
+}
+
+function isAssignableTo(from: AstNode, to: Type): boolean {
+  if (hasEmptyListOrMap(from.type)) {
+    if (from.kind == "list literal" && to.kind == "list") {
+      if (from.type.kind == "list" && from.type.elementType == UnknownType) {
+        from.type = to;
+        return true;
+      } else {
+        const seenSignatures = new Set<string>();
+        const elementTypes: Type[] = [];
+        for (const element of from.elements) {
+          if (!isAssignableTo(element, to.elementType)) return false;
+          if (!seenSignatures.has(element.type.signature)) {
+            seenSignatures.add(element.type.signature);
+            elementTypes.push(element.type);
+          }
+        }
+        if (elementTypes.length == 0) {
+          (from.type as ListType).setElementType(UnknownType);
+        } else {
+          (from.type as ListType).setElementType(elementTypes.length == 1 ? elementTypes[0] : new UnionType(elementTypes));
+        }
+        return true;
+      }
+    } else if (from.kind == "map literal" && to.kind == "map") {
+      if (from.type.kind == "map" && from.type.valueType == UnknownType) {
+        from.type = to;
+        return true;
+      } else {
+        const seenSignatures = new Set<string>();
+        const elementTypes: Type[] = [];
+        for (const value of from.values) {
+          if (!isAssignableTo(value, to.valueType)) return false;
+          if (!seenSignatures.has(value.type.signature)) {
+            seenSignatures.add(value.type.signature);
+            elementTypes.push(value.type);
+          }
+        }
+        if (elementTypes.length == 0) {
+          (from.type as MapType).setValueType(UnknownType);
+        } else {
+          (from.type as MapType).setValueType(elementTypes.length == 1 ? elementTypes[0] : new UnionType(elementTypes));
+        }
+        return true;
+      }
+    } else if (from.kind == "record literal") {
+      return false;
+    } else {
+      return false;
+    }
+  } else {
+    return typeIsAssignableTo(from.type, to);
+  }
+}
+
+function hasEmptyListOrMap(type: Type) {
+  let found = false;
+  traverseType(type, (type) => {
+    if (type.kind == "list" && type.elementType == UnknownType) {
+      found = true;
+      return false;
+    }
+    if (type.kind == "map" && type.valueType == UnknownType) {
+      found = true;
+      return false;
+    }
+    return true;
+  });
+  return found;
 }
