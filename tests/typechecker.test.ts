@@ -3,6 +3,41 @@ import { compile } from "../lib/compiler";
 import { ListType, MapType, NameAndType, NamedType, NothingType, NumberType, RecordType, StringType, UnionType } from "../lib/types";
 
 describe("Typechecker tests", () => {
+  it("Should infer types for empty list and map literals", () => {
+    const { errors } = compile(
+      "source.lf",
+      new MemorySourceLoader({
+        path: "source.lf",
+        text: `
+          var c:[[number] | number | [string]] = []
+          c = [ ]
+          var d:[[number]] = [[]]
+          var e:[[number]] = [[], [], [0]]
+          var f:[[number] | number | [string]] = []
+          var g:[[number]|[string]] = [[:string], [0]]
+          g = [[:string], [:number]]
+
+          func foo(a: [number])
+          end
+
+          foo([])
+
+          var m: {number} = {}
+          m = {}
+          var n:{{number}} = {"a": {}}
+          var o:{{number}} = {"a": {}, "b": {}, "c": { "d": 0}}
+          var p:{{number} | number | {string}} = {}
+          var q:{{number}|{string}} = {"a": {:string}, "b": {"c": 0}}
+          q = {"a": {:number}, "b": {:number}}
+
+          #var r: <m: [number], r: <f: [string]>> = <m: [], r: <f: []>>
+          #var v = <m: [[]]>
+        `,
+      })
+    );
+    expect(errors.length).toBe(0);
+  });
+
   it("Should infer type from initializer", () => {
     const { modules, errors } = compile(
       "source.lf",

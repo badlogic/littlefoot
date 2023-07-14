@@ -754,7 +754,7 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
         const symbol = scopes.get(node.target.name.value);
         if (symbol) {
           if (symbol.type.kind != "function") {
-            throw new LittleFootError(node.target.name.location, `'${node.target.name.location}' is not a function.`);
+            throw new LittleFootError(node.target.name.location, `'${node.target.name.value}' is not a function.`);
           }
           const functionType = symbol.type;
           if (functionType.parameters.length != node.args.length) {
