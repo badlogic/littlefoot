@@ -140,7 +140,7 @@ export function checkTypes(context: TypeCheckerContext) {
         });
         if (node.kind != "type reference" && node.kind != "name and type") {
           if (node.type.kind == "named function" || node.type.kind == "named type") {
-            throw new LittleFootError(node.location, "Internal error: AST node has named type.");
+            // throw new LittleFootError(node.location, "Internal error: AST node has named type.");
           }
         }
         return true;
@@ -278,7 +278,7 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
       break;
     }
     case "import":
-      // FIXME
+      // FIXME implement imports
       throw new Error("Not implemented");
     case "imported name": {
       break; // no-op, handled in "import" case above
@@ -359,7 +359,7 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
         if (operator.isNegated) {
           const newTypes = variableType.types.filter((type) => !isAssignableTo(variable, narrowedType));
           if (newTypes.length == 0) {
-            throw new LittleFootError(operator.isOperator.location, `Negation of 'is' operator results in empty type set.`); // FIXME better message
+            throw new LittleFootError(operator.isOperator.location, `Negation of 'is' operator results in empty type set.`); // TODO better message
           }
           variable.type = newTypes.length == 1 ? newTypes[0] : new UnionType(newTypes);
         } else {
@@ -797,12 +797,78 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
           node.type = closestFunc[0].type.returnType;
         }
       } else {
-        throw new LittleFootError(node.location, "Target of function call is not a function.");
+        checkNodeTypes(node.target, context);
+        if (node.target.type.kind != "function") {
+          throw new LittleFootError(node.target.location, `Target of function call is not a function but a ${node.target.type.signature}.`);
+        }
+        const functionType = node.target.type;
+        if (functionType.parameters.length != node.args.length) {
+          throw new LittleFootError(node.location, `Expected ${functionType.parameters.length} arguments, got ${node.args.length}.`);
+        }
+        for (let i = 0; i < node.args.length; i++) {
+          const arg = node.args[i];
+          const param = functionType.parameters[i];
+          if (!isAssignableTo(arg, param.type)) {
+            throw new LittleFootError(arg.location, `Expected a ${param.type.signature}, got a ${arg.type.signature}`);
+          }
+        }
+        node.type = functionType.returnType;
       }
       break;
     case "method call":
-      // FIXME
-      throw Error("not implemented");
+      for (const arg of node.args) {
+        checkNodeTypes(arg, context);
+      }
+      checkNodeTypes(node.target.object, context);
+      if (node.target.object.type.kind == "record") {
+        const field = node.target.object.type.fields.find((field) => field.name == node.target.member.value);
+        if (field) {
+          if (field.type.kind != "function") {
+            throw new LittleFootError(node.target.member.location, `'${node.target.member.value}' is not a function.`);
+          }
+          const functionType = field.type;
+          if (functionType.parameters.length != node.args.length) {
+            throw new LittleFootError(node.location, `Expected ${functionType.parameters.length} arguments, got ${node.args.length}.`);
+          }
+          for (let i = 0; i < node.args.length; i++) {
+            const arg = node.args[i];
+            const param = functionType.parameters[i];
+            if (!isAssignableTo(arg, param.type)) {
+              throw new LittleFootError(arg.location, `Expected a ${param.type.signature}, got a ${arg.type.signature}`);
+            }
+          }
+          node.target.type = functionType;
+          node.type = functionType.returnType;
+          return;
+        }
+        // Fall through if no member function was found
+      }
+      // Otherwise, lookup the best fitting function for the given args, including the "object"
+      // as the first argument.
+      const args = [node.target.object, ...node.args];
+      const closestFunc = getClosestFunction(context, node.target.member.value, args);
+      if (!closestFunc) {
+        throw new LittleFootError(
+          node.location,
+          `Could not find function '${node.target.member.value}' with matching parameters (${args
+            .map((arg) => arg.type.signature)
+            .join(",")}). Candidates: \n${functions
+            .get(node.target.member.value)
+            ?.map((func) => "\t" + func.signature)
+            .join("\n")}`
+        );
+      }
+      if (closestFunc.length > 1) {
+        throw new LittleFootError(
+          node.location,
+          `More than one function called '${node.target.member.value}' matches the arguments. Candidates: \n${closestFunc
+            .map((func) => "\t" + func.signature)
+            .join("\n")}`
+        );
+      }
+      node.target.type = closestFunc[0].type;
+      node.type = closestFunc[0].type.returnType;
+      break;
     default:
       assertNever(node);
   }

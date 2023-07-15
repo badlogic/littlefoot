@@ -9,6 +9,39 @@ describe("Typechecker tests", () => {
       new MemorySourceLoader({
         path: "source.lf",
         text: `
+        type vector = <x: number, y: number>
+
+        func add(a: vector, b: vector)
+          return <x: a.x + b.x, y: a.y + b.y>
+        end
+
+        func mul(v: vector, scalar: number)
+          return <x: v.x * scalar, y: v.y * scalar>
+        end
+
+        var a: vector = <x: 0, y: 0>
+        var b: vector = <x: 0, y: 0>
+        var c = a.add(b).mul(2)
+
+        var list = [
+          func(a: number) return a + 1 end,
+          func(a: number) return a + 2 end,
+          func(a: number) return a + 3 end
+        ]
+        list[0](0)
+
+        var map = {
+          "a": func(a: number) return a + 1 end,
+          "b": func(a: number) return a + 2 end
+        }
+        map["a"](0)
+
+        type foo = number | string
+        func bar(a: foo)
+        end
+        bar(0)
+        bar("string")
+
         func f(a: number)
           return a + 10
         end
@@ -39,6 +72,7 @@ describe("Typechecker tests", () => {
 
         f(n)
         f([0])
+
         `,
       })
     );

@@ -363,14 +363,14 @@ export class MapOrListAccessNode extends BaseAstNode {
 
 export class FunctionCallNode extends BaseAstNode {
   public readonly kind: "function call" = "function call";
-  constructor(public readonly target: ExpressionNode, public readonly args: ExpressionNode[], lastToken: Token) {
+  constructor(public readonly target: VariableAccessNode | MapOrListAccessNode, public readonly args: ExpressionNode[], lastToken: Token) {
     super(SourceLocation.from(target.location, lastToken.location));
   }
 }
 
 export class MethodCallNode extends BaseAstNode {
   public readonly kind: "method call" = "method call";
-  constructor(public readonly target: ExpressionNode, public readonly args: ExpressionNode[], lastToken: Token) {
+  constructor(public readonly target: MemberAccessNode, public readonly args: ExpressionNode[], lastToken: Token) {
     super(SourceLocation.from(target.location, lastToken.location));
   }
 }
