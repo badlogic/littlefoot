@@ -3,7 +3,48 @@ import { compile } from "../lib/compiler";
 import { ListType, MapType, NameAndType, NamedType, NothingType, NumberType, RecordType, StringType, UnionType } from "../lib/types";
 
 describe("Typechecker tests", () => {
-  it("Should infer types for empty list and map literals", () => {
+  it("Should select the correct function based on argument types", () => {
+    const { errors } = compile(
+      "source.lf",
+      new MemorySourceLoader({
+        path: "source.lf",
+        text: `
+        func f(a: number)
+          return a + 10
+        end
+
+        func f(a: number | string)
+          if a is number then
+            return a + 10
+          end
+        end
+
+        func f(a: number | string | [number])
+        end
+
+        f([])
+
+        var d = [0]
+        f(d)
+
+        var g = func(a: number)
+          return a + 10
+        end
+
+        var n: number | string = "string"
+
+        if n is number then
+          g(n)
+        end
+
+        f(n)
+        f([0])
+        `,
+      })
+    );
+  });
+
+  it("Should infer types for empty list and map literals and expand literal types to unions", () => {
     const { errors } = compile(
       "source.lf",
       new MemorySourceLoader({
@@ -30,14 +71,9 @@ describe("Typechecker tests", () => {
         #var x: {number|string} = {"a": 0}
 
         #var r: <m: [number], r: <f: [string]>> = <m: [], r: <f: []>>
-        #var s: <x: number | string> = <x: 0> # WTF
+        #var s: <x: number | string> = <x: 0>
 
         var z: [[[number|string]]] = [[[0, 1]], [[], ["string"]]]
-
-        #func foo(a: [number])
-        #end
-
-        #foo([])
         `,
       })
     );

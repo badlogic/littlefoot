@@ -39,7 +39,7 @@ export class SymbolScopes {
     return undefined;
   }
 
-  add(node: Symbol) {
+  add(node: Symbol, allowShadow = false) {
     let scopes = this.scopes;
     for (var i = scopes.length - 1; i >= 0; i--) {
       let scope = scopes[i];
@@ -47,6 +47,7 @@ export class SymbolScopes {
       if (other) {
         throw new LittleFootError(node.name.location, `Variable ${node.name.value} already defined in line ${other.name.location.lines[0].index}.`);
       }
+      if (allowShadow) break;
     }
     scopes[scopes.length - 1].set(node.name.value, node);
   }
@@ -254,7 +255,7 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
     case "type declaration": {
       // We set the type of type declaration nodes to new NamedType("name", UnknownType) in
       // checkTypes(). When we first resolve the type of a type declaration, we check the
-      // type fo the right hand side of the assignement, replace the UnknownType in the
+      // type of the right hand side of the assignement, replace the UnknownType in the
       // NamedType with it, then assign the plain type to the node itself.
       // All type declaration nodes are checked a second time as part of iterating over all statements
       // in the module AST in checkTypes(). We do not have to do anything anymore in that case, as the
@@ -716,6 +717,7 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
           throw new LittleFootError(node.member.location, `Field '${node.member.value}' does not exist on a '${node.object.type.signature}'.`);
         }
       } else if (type.kind == "list" || type.kind == "map" || type == StringType) {
+        // FIXME map also has keys:[string] and values:[valueType]
         if (node.member.value !== "length") {
           throw new LittleFootError(node.member.location, `Field '${node.member.value}' does not exist on a '${node.object.type.signature}'.`);
         }
@@ -750,7 +752,7 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
       }
       if (node.target.kind == "variable access") {
         // if the target is a variable name, first check if
-        // there's one in the scope. If so, check it's type
+        // there's one in the scope. If so, check its type
         const symbol = scopes.get(node.target.name.value);
         if (symbol) {
           if (symbol.type.kind != "function") {
@@ -767,14 +769,11 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
               throw new LittleFootError(arg.location, `Expected a ${param.type.signature}, got a ${arg.type.signature}`);
             }
           }
+          checkNodeTypes(node.target, context);
           node.type = functionType.returnType;
         } else {
           // Otherwise, lookup the best fitting function for the given args.
-          const closestFunc = functions.getClosest(
-            node.target.name.value,
-            node.args.map((arg) => arg.type),
-            null
-          );
+          const closestFunc = getClosestFunction(context, node.target.name.value, node.args);
           if (!closestFunc) {
             throw new LittleFootError(
               node.location,
@@ -813,7 +812,7 @@ function checkFunctionNode(node: FunctionLiteralNode | FunctionNode, context: Ty
   context.scopes.push();
   for (const parameter of node.parameters) {
     checkNodeTypes(parameter, context);
-    context.scopes.add(parameter);
+    context.scopes.add(parameter, true);
   }
 
   if (node.returnType) checkNodeTypes(node.returnType, context);
@@ -880,26 +879,30 @@ function isAssignableTo(from: AstNode, to: Type): boolean {
 
 function expandLiteralValueTypesToUnions(from: AstNode, to: Type) {
   if (hasUnion(to)) {
-    if (from.kind == "list literal" && from.type.kind == "list" && to.kind == "list") {
-      if (to.elementType.kind == "union") {
-        from.type.setElementType(unifyUnions(from.type.elementType, to.elementType));
-      } else if (to.elementType.kind == "list") {
-        if (!isEqual(from.type.elementType, to.elementType)) {
-          for (const element of from.elements) {
-            expandLiteralValueTypesToUnions(element, to.elementType);
+    if (from.kind == "list literal" && from.type.kind == "list") {
+      if (to.kind == "list") {
+        if (to.elementType.kind == "union") {
+          from.type.setElementType(unify(from.type.elementType, to.elementType));
+        } else if (to.elementType.kind == "list") {
+          if (!isEqual(from.type.elementType, to.elementType)) {
+            for (const element of from.elements) {
+              expandLiteralValueTypesToUnions(element, to.elementType);
+            }
+            from.type.setElementType(nodeListToType(from.elements));
           }
-          from.type.setElementType(nodeListToType(from.elements));
         }
       }
-    } else if (from.kind == "map literal" && from.type.kind == "map" && to.kind == "map") {
-      if (to.valueType.kind == "union") {
-        from.type.setValueType(unifyUnions(from.type.valueType, to.valueType));
-      } else {
-        if (!isEqual(from.type.valueType, to.valueType)) {
-          for (const element of from.values) {
-            expandLiteralValueTypesToUnions(element, to.valueType);
+    } else if (from.kind == "map literal" && from.type.kind == "map") {
+      if (to.kind == "map") {
+        if (to.valueType.kind == "union") {
+          from.type.setValueType(unify(from.type.valueType, to.valueType));
+        } else {
+          if (!isEqual(from.type.valueType, to.valueType)) {
+            for (const element of from.values) {
+              expandLiteralValueTypesToUnions(element, to.valueType);
+            }
+            from.type.setValueType(nodeListToType(from.values));
           }
-          from.type.setValueType(nodeListToType(from.values));
         }
       }
     } else if (from.kind == "record literal" && from.type.kind == "record" && to.kind == "record") {
@@ -921,7 +924,7 @@ function expandLiteralValueTypesToUnions(from: AstNode, to: Type) {
       }
       from.type.updateSignature();
     } else if (to.kind == "union") {
-      from.type = unifyUnions(from.type, to);
+      from.type = unify(from.type, to);
     }
   }
 }
@@ -934,38 +937,84 @@ function assignTypesToEmptyListAndMapLiterals(from: AstNode, to: Type): boolean 
     // its type if possible. The from type must be a (nested) list, map, or record at
     // this point, and to must have a corresponding type.
 
-    if (from.kind == "list literal" && from.type.kind == "list" && to.kind == "list") {
-      // If the from list literal is not nested and empty, it has type
-      // UnknownType. Assign the to type.
-      if (from.type.elementType == UnknownType) {
-        from.type = to;
-        return true;
-      } else {
-        // Otherwise, the from list literal has a nested value with an
-        // unknown type. Recursively check and resolve the unknown types
-        // of empty list or map literal values.
-        for (const element of from.elements) {
-          if (!assignTypesToEmptyListAndMapLiterals(element, to.elementType)) return false;
+    if (from.kind == "list literal" && from.type.kind == "list") {
+      if (to.kind == "list") {
+        // If the from list literal is not nested and empty, it has type
+        // UnknownType. Assign the to type.
+        if (from.type.elementType.signature == UnknownType.signature) {
+          // Using signature because scoreFunction copies types.
+          from.type = to;
+          return true;
+        } else {
+          // Otherwise, the from list literal has a nested value with an
+          // unknown type. Recursively check and resolve the unknown types
+          // of empty list or map literal values.
+          for (const element of from.elements) {
+            if (!assignTypesToEmptyListAndMapLiterals(element, to.elementType)) return false;
+          }
+          from.type.setElementType(nodeListToType(from.elements));
+          return true;
         }
-        from.type.setElementType(nodeListToType(from.elements));
+      } else if (to.kind == "union") {
+        // `to` can also be a union.
+        const listTypes = to.types.filter((type) => type.kind == "list");
+        if (listTypes.length == 0) {
+          // If there's no list type in the union, the empty list type can not be inferred.
+          throw new LittleFootError(from.location, `Can not infer type for empty list literal from target type ${to.signature}`);
+        } else if (listTypes.length == 1) {
+          // If the union contains 1 list type, try to assign that as the empty list type
+          return assignTypesToEmptyListAndMapLiterals(from, listTypes[0]);
+        } else {
+          // If there are > 1 list types, the type is undecideable
+          throw new LittleFootError(
+            from.location,
+            `Can not infer type for empty list literal from target type ${to.signature}. Candidates:\n${listTypes
+              .map((type) => type.signature)
+              .join("\n")}`
+          );
+        }
+      } else {
         return true;
       }
-    } else if (from.kind == "map literal" && from.type.kind == "map" && to.kind == "map") {
-      // If the from list literal is not nested and empty, it has type
-      // UnknownType. Assign the to type.
-      if (from.type.kind == "map" && from.type.valueType == UnknownType) {
-        from.type = to;
-        return true;
-      } else {
-        // Otherwise, the from map literal has a nested value with an
-        // unknown type. Recursively check and resolve the unknown types
-        // of the values.
-        for (const value of from.values) {
-          if (!assignTypesToEmptyListAndMapLiterals(value, to.valueType)) return false;
-        }
+    } else if (from.kind == "map literal" && from.type.kind == "map") {
+      if (to.kind == "map") {
+        // If the from list literal is not nested and empty, it has type
+        // UnknownType. Assign the to type.
+        if (from.type.kind == "map" && from.type.valueType.signature == UnknownType.signature) {
+          // Using signature because scoreFunction copies types.
+          from.type = to;
+          return true;
+        } else {
+          // Otherwise, the from map literal has a nested value with an
+          // unknown type. Recursively check and resolve the unknown types
+          // of the values.
+          for (const value of from.values) {
+            if (!assignTypesToEmptyListAndMapLiterals(value, to.valueType)) return false;
+          }
 
-        // Update the map literal's type.
-        from.type.setValueType(nodeListToType(from.values));
+          // Update the map literal's type.
+          from.type.setValueType(nodeListToType(from.values));
+          return true;
+        }
+      } else if (to.kind == "union") {
+        // `to` can also be a union.
+        const mapTypes = to.types.filter((type) => type.kind == "map");
+        if (mapTypes.length == 0) {
+          // If there's no list type in the union, the empty list type can not be inferred.
+          throw new LittleFootError(from.location, `Can not infer type for empty map literal from target type ${to.signature}`);
+        } else if (mapTypes.length == 1) {
+          // If the union contains 1 list type, try to assign that as the empty list type
+          return assignTypesToEmptyListAndMapLiterals(from, mapTypes[0]);
+        } else {
+          // If there are > 1 list types, the type is undecideable
+          throw new LittleFootError(
+            from.location,
+            `Can not infer type for empty map literal from target type ${to.signature}. Candidates:\n${mapTypes
+              .map((type) => type.signature)
+              .join("\n")}`
+          );
+        }
+      } else {
         return true;
       }
     } else if (from.kind == "record literal" && to.kind == "record") {
@@ -1008,11 +1057,13 @@ function assignTypesToEmptyListAndMapLiterals(from: AstNode, to: Type): boolean 
 function hasEmptyListOrMap(type: Type) {
   let found = false;
   traverseType(type, (type) => {
-    if (type.kind == "list" && type.elementType == UnknownType) {
+    if (type.kind == "list" && type.elementType.signature == UnknownType.signature) {
+      // Using signature because scoreFunction copies types.
       found = true;
       return false;
     }
-    if (type.kind == "map" && type.valueType == UnknownType) {
+    if (type.kind == "map" && type.valueType.signature == UnknownType.signature) {
+      // Using signature because scoreFunction copies types.
       found = true;
       return false;
     }
@@ -1033,7 +1084,7 @@ function hasUnion(type: Type) {
   return found;
 }
 
-function unifyUnions(a: Type, union: UnionType) {
+function unify(a: Type, union: UnionType) {
   const seenSignatures = new Set<string>();
   const unionTypes: Type[] = [];
 
@@ -1072,4 +1123,64 @@ function nodeListToType(nodes: AstNode[]) {
   } else {
     return elementTypes.length == 1 ? elementTypes[0] : new UnionType(elementTypes);
   }
+}
+
+function getClosestFunction(context: TypeCheckerContext, name: string, args: AstNode[]) {
+  const funcs = context.module.functions.get(name);
+  if (!funcs) return null;
+
+  const scoredFunctions: { score: number; func: NamedFunction }[] = [];
+  for (const func of funcs) {
+    const score = scoreFunction(func, args);
+    if (score != Number.MAX_VALUE) {
+      scoredFunctions.push({ score, func });
+    }
+  }
+  scoredFunctions.sort((a, b) => b.score - a.score);
+  if (scoredFunctions.length == 0) return null;
+  const bestScore = scoredFunctions[0].score;
+  const candidates = scoredFunctions.filter((scoredFunc) => scoredFunc.score == bestScore).map((scoredFunc) => scoredFunc.func);
+
+  // If we found a single candidate, type empty lists and expand literal value types to union types.
+  if (candidates.length == 1) {
+    const func = candidates[0];
+    for (let i = 0; i < args.length; i++) {
+      const param = func.type.parameters[i].type;
+      const arg = args[i];
+      isAssignableTo(arg, param);
+    }
+  }
+  return candidates;
+}
+
+function scoreFunction(func: NamedFunction, args: AstNode[]) {
+  if (func.type.parameters.length != args.length) return Number.MAX_VALUE;
+
+  let match = true;
+  let score = 0;
+  for (let i = 0; i < args.length; i++) {
+    const param = func.type.parameters[i].type;
+    const arg = args[i];
+    if (isEqual(arg.type, param)) {
+      score += 2;
+    } else {
+      // Need to copy the argument node, as isAssignableTo
+      // may modify its type hierarchy.
+      const copiedArg = JSON.parse(JSON.stringify(arg));
+      try {
+        // isAssignableTo can throw in case the type
+        // of an empty list can not be resolved.
+        if (isAssignableTo(copiedArg, param)) {
+          score += 1;
+        } else {
+          match = false;
+          break;
+        }
+      } catch (e) {
+        return Number.MAX_VALUE;
+      }
+    }
+  }
+  if (!match) return Number.MAX_VALUE;
+  return score;
 }

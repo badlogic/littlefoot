@@ -13,6 +13,7 @@ export class Editor {
       language: "littlefoot",
       theme: "vs-dark",
       value: "",
+      tabSize: 2,
       minimap: {
         enabled: false,
       },

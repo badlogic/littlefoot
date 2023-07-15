@@ -1,4 +1,4 @@
-import { AstNode, FunctionNode, TypeNode, TypeSpecifierNode } from "./ast";
+import { AstNode, TypeNode } from "./ast";
 import { LittleFootError } from "./error";
 import { SourceLocation } from "./source";
 
@@ -200,45 +200,6 @@ export class Functions {
     return false;
   }
 
-  getClosest(name: string, args: Type[], returnType: Type | null) {
-    const funcs = this.lookup.get(name);
-    if (!funcs) return null;
-
-    const scoredFunctions: { score: number; func: NamedFunction }[] = [];
-    for (const func of funcs) {
-      const score = this.scoreFunction(func, args, returnType);
-      if (score != Number.MAX_VALUE) {
-        scoredFunctions.push({ score, func });
-      }
-    }
-    scoredFunctions.sort((a, b) => a.score - b.score);
-    if (scoredFunctions.length == 0) return null;
-    const bestScore = scoredFunctions[0].score;
-    return scoredFunctions.filter((scoredFunc) => scoredFunc.score == bestScore).map((scoredFunc) => scoredFunc.func);
-  }
-
-  private scoreFunction(func: NamedFunction, args: Type[], returnType: Type | null) {
-    if (returnType && !isAssignableTo(func.type.returnType, returnType)) return Number.MAX_VALUE;
-    if (func.type.parameters.length != args.length) return Number.MAX_VALUE;
-
-    let match = true;
-    let score = 0;
-    for (let i = 0; i < args.length; i++) {
-      const param = func.type.parameters[i].type;
-      const arg = args[i];
-      if (isEqual(arg, param)) {
-        score += 2;
-      } else if (isAssignableTo(arg, param)) {
-        score += 1;
-      } else {
-        match = false;
-        break;
-      }
-    }
-    if (!match) return Number.MAX_VALUE;
-    return score;
-  }
-
   add(func: NamedFunction) {
     if (this.hasExact(func.name, func.signature)) {
       const otherType = this.getExact(func.name, func.signature)! as NamedFunction;
@@ -374,7 +335,7 @@ export function isEqual(a: Type, b: Type) {
   }
 }
 
-// If from is a List and map with element/valueType == UnknownType,
+// If from is a List and map with element/valueType equal to UnknownType,
 // its element/valueType will be set to `to`'s element/valueType
 // and it will be reported to be assignable. This allows empty
 // list and map literals to be assigned to variables, fields,
@@ -449,8 +410,8 @@ export function isAssignableTo(from: Type, to: Type): boolean {
     }
   } else if (from.kind == "function" && to.kind == "function") {
     // For functions, the number of parameters must match,
-    // and the parameter types of a must be assignable to
-    // the parameter types of b. The return type of a must
+    // and the parameter types of `from` must be assignable to
+    // the parameter types of `. The return type of a must
     // also be assignable to b. The parameter names do not matter.
     if (from.parameters.length != to.parameters.length) return false;
     for (let i = 0; i < from.parameters.length; i++) {
@@ -462,20 +423,4 @@ export function isAssignableTo(from: Type, to: Type): boolean {
     return false;
   }
   return false;
-}
-
-export function hasEmptyListOrMap(type: Type) {
-  let found = false;
-  traverseType(type, (type) => {
-    if (type.kind == "list" && type.elementType == UnknownType) {
-      found = true;
-      return false;
-    }
-    if (type.kind == "map" && type.valueType == UnknownType) {
-      found = true;
-      return false;
-    }
-    return true;
-  });
-  return found;
 }
