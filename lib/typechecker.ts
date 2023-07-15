@@ -872,77 +872,118 @@ function checkFunctionNode(node: FunctionLiteralNode | FunctionNode, context: Ty
 }
 
 function isAssignableTo(from: AstNode, to: Type): boolean {
+  resolveEmtpyListAndMapTypesInLiteral(from, to);
+  resolveLiteralValuesToUnions(from, to);
+  if (!typeIsAssignableTo(from.type, to)) return false;
+  return true;
+}
+
+// FIXME this needs to be recursive somehow...
+function resolveLiteralValuesToUnions(from: AstNode, to: Type) {
+  if (hasUnion(to)) {
+    if (from.kind == "list literal" && from.type.kind == "list" && to.kind == "list") {
+      if (to.elementType.kind == "union") {
+        from.type.setElementType(unifyUnions(from.type.elementType, to.elementType));
+      } else if (to.elementType.kind == "list") {
+        if (!isEqual(from.type.elementType, to.elementType)) {
+          for (const element of from.elements) {
+            resolveLiteralValuesToUnions(element, to.elementType);
+          }
+          from.type.setElementType(nodeListToType(from.elements));
+        }
+      }
+    } else if (from.kind == "map literal" && from.type.kind == "map" && to.kind == "map") {
+      if (to.valueType.kind == "union") {
+        from.type.setValueType(unifyUnions(from.type.valueType, to.valueType));
+      } else {
+        if (!isEqual(from.type.valueType, to.valueType)) {
+          for (const element of from.values) {
+            resolveLiteralValuesToUnions(element, to.valueType);
+          }
+          from.type.setValueType(nodeListToType(from.values));
+        }
+      }
+    } else if (from.kind == "record literal" && from.type.kind == "record" && to.kind == "record") {
+    }
+  }
+}
+
+// Finds empty lists and maps in literals and infers their type based on to
+// `to` type.
+function resolveEmtpyListAndMapTypesInLiteral(from: AstNode, to: Type): boolean {
   if (hasEmptyListOrMap(from.type)) {
-    if (from.kind == "list literal" && to.kind == "list") {
-      if (from.type.kind == "list" && from.type.elementType == UnknownType) {
+    // The from type has an empty list or map literal in it. We need to infer
+    // its type if possible. The from type must be a (nested) list, map, or record at
+    // this point, and to must have a corresponding type.
+
+    if (from.kind == "list literal" && from.type.kind == "list" && to.kind == "list") {
+      // If the from list literal is not nested and empty, it has type
+      // UnknownType. Assign the to type.
+      if (from.type.elementType == UnknownType) {
         from.type = to;
         return true;
       } else {
-        const seenSignatures = new Set<string>();
-        const elementTypes: Type[] = [];
+        // Otherwise, the from list literal has a nested value with an
+        // unknown type. Recursively check and resolve the unknown types
+        // of empty list or map literal values.
         for (const element of from.elements) {
-          if (!isAssignableTo(element, to.elementType)) return false;
-          if (!seenSignatures.has(element.type.signature)) {
-            seenSignatures.add(element.type.signature);
-            elementTypes.push(element.type);
-          }
+          if (!resolveEmtpyListAndMapTypesInLiteral(element, to.elementType)) return false;
         }
-        if (elementTypes.length == 0) {
-          (from.type as ListType).setElementType(UnknownType);
-        } else {
-          (from.type as ListType).setElementType(elementTypes.length == 1 ? elementTypes[0] : new UnionType(elementTypes));
-        }
+        from.type.setElementType(nodeListToType(from.elements));
         return true;
       }
-    } else if (from.kind == "map literal" && to.kind == "map") {
+    } else if (from.kind == "map literal" && from.type.kind == "map" && to.kind == "map") {
+      // If the from list literal is not nested and empty, it has type
+      // UnknownType. Assign the to type.
       if (from.type.kind == "map" && from.type.valueType == UnknownType) {
         from.type = to;
         return true;
       } else {
-        const seenSignatures = new Set<string>();
-        const elementTypes: Type[] = [];
+        // Otherwise, the from map literal has a nested value with an
+        // unknown type. Recursively check and resolve the unknown types
+        // of the values.
         for (const value of from.values) {
-          if (!isAssignableTo(value, to.valueType)) return false;
-          if (!seenSignatures.has(value.type.signature)) {
-            seenSignatures.add(value.type.signature);
-            elementTypes.push(value.type);
-          }
+          if (!resolveEmtpyListAndMapTypesInLiteral(value, to.valueType)) return false;
         }
-        if (elementTypes.length == 0) {
-          (from.type as MapType).setValueType(UnknownType);
-        } else {
-          (from.type as MapType).setValueType(elementTypes.length == 1 ? elementTypes[0] : new UnionType(elementTypes));
-        }
+
+        // Update the map literal's type.
+        from.type.setValueType(nodeListToType(from.values));
         return true;
       }
     } else if (from.kind == "record literal" && to.kind == "record") {
+      // If the from record has less fields than the to record
+      // we can stop infering types. The from record can not be
+      // assigned to the to record.
       if (from.fieldValues.length < to.fields.length) return false;
+
+      // Otherwise, fix up empty lists and maps in the record's field
+      // which will also resolve their respective unknown types.
       for (let i = 0; i < from.fieldValues.length; i++) {
         const fieldName = from.fieldNames[i];
         const fieldValue = from.fieldValues[i];
         let found = false;
         for (const toField of to.fields) {
           if (fieldName.value !== toField.name) continue;
-          if (isAssignableTo(fieldValue, toField.type)) {
+          if (resolveEmtpyListAndMapTypesInLiteral(fieldValue, toField.type)) {
             found = true;
             break;
           }
         }
         if (!found) return false;
       }
-      if (from.type.signature.includes("$unknown")) {
-        const type = from.type as RecordType;
-        for (let i = 0; i < from.fieldValues.length; i++) {
-          type.fields[i].type = from.fieldValues[i].type;
-        }
-        (from.type as RecordType).updateSignature();
+      // Update the record literal's type, which should not have
+      // any empty list and map literals with unknown type anymore.
+      const type = from.type as RecordType;
+      for (let i = 0; i < from.fieldValues.length; i++) {
+        type.fields[i].type = from.fieldValues[i].type;
       }
+      (from.type as RecordType).updateSignature();
       return true;
     } else {
       return false;
     }
   } else {
-    return typeIsAssignableTo(from.type, to);
+    return true;
   }
 }
 
@@ -960,4 +1001,57 @@ function hasEmptyListOrMap(type: Type) {
     return true;
   });
   return found;
+}
+
+function hasUnion(type: Type) {
+  let found = false;
+  traverseType(type, (type) => {
+    if (type.kind == "union") {
+      found = true;
+      return false;
+    }
+    return true;
+  });
+  return found;
+}
+
+function unifyUnions(a: Type, union: UnionType) {
+  const seenSignatures = new Set<string>();
+  const unionTypes: Type[] = [];
+
+  if (a.kind == "union") {
+    for (const type of a.types) {
+      if (!seenSignatures.has(type.signature)) {
+        seenSignatures.add(type.signature);
+        unionTypes.push(type);
+      }
+    }
+  } else {
+    seenSignatures.add(a.signature);
+    unionTypes.push(a);
+  }
+
+  for (const type of union.types) {
+    if (!seenSignatures.has(type.signature)) {
+      seenSignatures.add(type.signature);
+      unionTypes.push(type);
+    }
+  }
+  return new UnionType(unionTypes.length == 0 ? [UnknownType] : unionTypes);
+}
+
+function nodeListToType(nodes: AstNode[]) {
+  const seenSignatures = new Set<string>();
+  const elementTypes: Type[] = [];
+  for (const node of nodes) {
+    if (!seenSignatures.has(node.type.signature)) {
+      seenSignatures.add(node.type.signature);
+      elementTypes.push(node.type);
+    }
+  }
+  if (elementTypes.length == 0) {
+    return UnknownType;
+  } else {
+    return elementTypes.length == 1 ? elementTypes[0] : new UnionType(elementTypes);
+  }
 }

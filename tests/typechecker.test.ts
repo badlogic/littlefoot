@@ -9,29 +9,35 @@ describe("Typechecker tests", () => {
       new MemorySourceLoader({
         path: "source.lf",
         text: `
-          var c:[[number] | number | [string]] = []
-          c = [ ]
-          var d:[[number]] = [[]]
-          var e:[[number]] = [[], [], [0]]
-          var f:[[number] | number | [string]] = []
-          var g:[[number]|[string]] = [[:string], [0]]
-          g = [[:string], [:number]]
+        # This is a test
+        #var c:[[number] | number | [string]] = []
+        #c = [ ]
+        #var d:[[number]] = [[]]
+        #var e:[[number]] = [[], [], [0]]
+        #var f:[[number] | number | [string]] = []
+        #var g:[[number]|[string]] = [[:string], [0]]
+        #var i:[[number]|[string]] = []
+        #i = [[0], ["string"]]
+        #var x: number | string = 0
+        #var h: [number|string] = [0]
+        #var m: {number} = {}
+        #m = {}
+        #var n:{{number}} = {"a": {}}
+        #var o:{{number}} = {"a": {}, "b": {}, "c": { "d": 0}}
+        #var p:{{number} | number | {string}} = {}
+        #var q:{{number}|{string}} = {"a": {:string}, "b": {"c": 0}}
+        #a = {"a": {:number}, "b": {:number}}
+        #var x: {number|string} = {"a": 0}
 
-          func foo(a: [number])
-          end
+        #var r: <m: [number], r: <f: [string]>> = <m: [], r: <f: []>>
+        #var s: <x: number | string> = <x: 0> # WTF
 
-          foo([])
+        var z: [[[number|string]]] = [[[0, 1]], [[], ["string"]]]
 
-          var m: {number} = {}
-          m = {}
-          var n:{{number}} = {"a": {}}
-          var o:{{number}} = {"a": {}, "b": {}, "c": { "d": 0}}
-          var p:{{number} | number | {string}} = {}
-          var q:{{number}|{string}} = {"a": {:string}, "b": {"c": 0}}
-          q = {"a": {:number}, "b": {:number}}
+        #func foo(a: [number])
+        #end
 
-          #var r: <m: [number], r: <f: [string]>> = <m: [], r: <f: []>>
-          #var v = <m: [[]]>
+        #foo([])
         `,
       })
     );

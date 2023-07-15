@@ -420,12 +420,11 @@ export function isAssignableTo(from: Type, to: Type): boolean {
       return true;
     }
   } else if (from.kind == "list" && to.kind == "list") {
-    // For lists, the element type must be equal.
-    return isAssignableTo(from.elementType, to.elementType);
+    // For lists, the element types must be equal.
+    return isEqual(from.elementType, to.elementType);
   } else if (from.kind == "map" && to.kind == "map") {
-    // For maps, the value type of a must be assignable to
-    // value types of b.
-    return isAssignableTo(from.valueType, to.valueType);
+    // For maps, the value types must be equal.
+    return isEqual(from.valueType, to.valueType);
   } else if (from.kind == "record" && to.kind == "record") {
     // We only get here if isEqual(a, b) was false, which means
     // the two record types don't have the same number or exact
@@ -436,10 +435,11 @@ export function isAssignableTo(from: Type, to: Type): boolean {
     // FIXME this is wrong for assignments I think?
     // var v: <x: number, y: number> = <x: 0, y: 0, z: 0>
     if (from.fields.length < to.fields.length) return false;
-    for (const aField of from.fields) {
+    for (const fromField of from.fields) {
       let found = false;
-      for (const bField of to.fields) {
-        if (isAssignableTo(aField.type, bField.type)) {
+      for (const toField of to.fields) {
+        if (fromField.name !== toField.name) break;
+        if (isEqual(fromField.type, toField.type)) {
           found = true;
           break;
         }
