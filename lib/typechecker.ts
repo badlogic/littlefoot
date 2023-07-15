@@ -1,5 +1,5 @@
 // prettier-ignore
-import {AstNode, DoNode, ForEachNode, ForNode, FunctionLiteralNode, FunctionNode, IsOperatorNode, NameAndTypeNode, RecordLiteralNode, ReturnNode, TypeNode, TypeSpecifierNode, VariableAccessNode, VariableNode, WhileNode, traverseAst,} from "./ast";
+import {AstNode, DoNode, ForEachNode, ForNode, FunctionLiteralNode, FunctionNode, IsOperatorNode, LoopVariable, NameAndTypeNode, RecordLiteralNode, ReturnNode, TypeNode, TypeSpecifierNode, VariableAccessNode, VariableNode, WhileNode, traverseAst,} from "./ast";
 import { CompilerContext, Module } from "./compiler";
 import { LittleFootError } from "./error";
 import { SourceLocation } from "./source";
@@ -10,7 +10,7 @@ function assertNever(x: never) {
   throw new Error("Unexpected object: " + x);
 }
 
-export type Symbol = VariableNode | NameAndTypeNode;
+export type Symbol = VariableNode | NameAndTypeNode | LoopVariable;
 
 export class SymbolScopes {
   scopes = new Array<Map<String, Symbol>>();
@@ -410,14 +410,19 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
 
       node.type = NothingType;
       break;
+    case "loop variable":
+      // Nothing to do here, type is assigned and checked in "for each" and "for" cases below
+      break;
     case "for each":
       checkNodeTypes(node.list, context);
-      if (!(node.list.type.kind == "list")) {
+      if (node.list.type.kind != "list") {
         throw new LittleFootError(node.list.location, `'for each' needs a list but '${node.list.type.signature}' was given.`);
       }
+      node.loopVariable.type = node.list.type.elementType;
 
       context.pushLoop(node);
       scopes.push();
+      scopes.add(node.loopVariable);
       for (const statement of node.block) {
         checkNodeTypes(statement, context);
       }
@@ -426,6 +431,7 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
       node.type = NothingType;
       break;
     case "for":
+      node.loopVariable.type = NumberType;
       checkNodeTypes(node.from, context);
       checkNodeTypes(node.to, context);
       if (node.step) checkNodeTypes(node.step, context);
@@ -441,6 +447,7 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
 
       context.pushLoop(node);
       scopes.push();
+      scopes.add(node.loopVariable);
       for (const statement of node.block) {
         checkNodeTypes(statement, context);
       }

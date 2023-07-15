@@ -3,9 +3,11 @@ import { SourceLocation } from "./source";
 import { BoolToken, IdentifierToken, NothingToken, NumberToken, OperatorToken, StringToken, Token } from "./tokenizer";
 import { NameAndType, NamedType, Type, UnknownType } from "./types";
 
-export type AstNode = ImportNode | ImportedNameNode | NameAndTypeNode | TypeSpecifierNode | TopLevelNode;
+export type AstNode = ImportNode | ImportedNameNode | InternalNode | TopLevelNode;
 
 export type TopLevelNode = FunctionNode | TypeNode | StatementNode;
+
+export type InternalNode = NameAndTypeNode | LoopVariable | TypeSpecifierNode;
 
 export type TypeSpecifierNode = TypeReferenceNode | ListTypeNode | MapTypeNode | FunctionTypeNode | RecordTypeNode | UnionTypeNode | MixinTypeNode;
 
@@ -180,11 +182,18 @@ export class WhileNode extends BaseAstNode {
   }
 }
 
+export class LoopVariable extends BaseAstNode {
+  public readonly kind: "loop variable" = "loop variable";
+  constructor(public readonly name: IdentifierToken) {
+    super(name.location);
+  }
+}
+
 export class ForNode extends BaseAstNode {
   public readonly kind: "for" = "for";
   constructor(
     firstToken: Token,
-    public readonly identifier: IdentifierToken,
+    public readonly loopVariable: LoopVariable,
     public readonly from: ExpressionNode,
     public readonly to: ExpressionNode,
     public readonly step: ExpressionNode | null,
@@ -199,7 +208,7 @@ export class ForEachNode extends BaseAstNode {
   public readonly kind: "for each" = "for each";
   constructor(
     firstToken: Token,
-    public readonly identifier: IdentifierToken,
+    public readonly loopVariable: LoopVariable,
     public readonly list: ExpressionNode,
     public readonly block: StatementNode[],
     lastToken: Token
@@ -462,6 +471,8 @@ export function traverseAst(node: AstNode, callback: (node: AstNode) => boolean)
       for (const statement of node.block) {
         traverseAst(statement, callback);
       }
+      break;
+    case "loop variable":
       break;
     case "for each":
       traverseAst(node.list, callback);

@@ -2,7 +2,7 @@ import { LittleFootError } from "./error";
 // prettier-ignore
 import { tokenize, TokenStream, IdentifierToken, StringToken, NumberToken, NothingToken, RecordOpeningToken, OperatorToken } from "./tokenizer";
 // prettier-ignore
-import { ListLiteralNode, ListTypeNode, BinaryOperatorNode, BooleanLiteralNode, DoNode, ExpressionNode, ForEachNode, ForNode, FunctionCallNode, FunctionLiteralNode, FunctionNode, FunctionTypeNode, IfNode, IsOperatorNode, MapLiteralNode, MapOrListAccessNode, MapTypeNode, MemberAccessNode, MethodCallNode, NameAndTypeNode, NothingLiteralNode, NumberLiteralNode, StatementNode, StringLiteralNode, TernaryOperatorNode, TypeSpecifierNode, UnaryOperatorNode, VariableAccessNode, VariableNode, WhileNode, RecordTypeNode, RecordLiteralNode, ContinueNode, BreakNode, ReturnNode, TypeNode, TypeReferenceNode as TypeNameNode, AstNode, MixinTypeNode, UnionTypeNode, ImportNode, ImportedNameNode } from "./ast";
+import { ListLiteralNode, ListTypeNode, BinaryOperatorNode, BooleanLiteralNode, DoNode, ExpressionNode, ForEachNode, ForNode, FunctionCallNode, FunctionLiteralNode, FunctionNode, FunctionTypeNode, IfNode, IsOperatorNode, MapLiteralNode, MapOrListAccessNode, MapTypeNode, MemberAccessNode, MethodCallNode, NameAndTypeNode, NothingLiteralNode, NumberLiteralNode, StatementNode, StringLiteralNode, TernaryOperatorNode, TypeSpecifierNode, UnaryOperatorNode, VariableAccessNode, VariableNode, WhileNode, RecordTypeNode, RecordLiteralNode, ContinueNode, BreakNode, ReturnNode, TypeNode, TypeReferenceNode as TypeNameNode, AstNode, MixinTypeNode, UnionTypeNode, ImportNode, ImportedNameNode, LoopVariable } from "./ast";
 import { Source, SourceLocation } from "./source";
 
 export enum Attribute {
@@ -331,7 +331,7 @@ function parseFor(stream: TokenStream) {
   const firstToken = stream.expectValue("for");
 
   if (stream.matchValue("each", true)) {
-    const identifier = stream.expectType(IdentifierToken);
+    const loopVariable = stream.expectType(IdentifierToken);
     stream.expectValue("in");
     const list = parseExpression(stream);
     stream.expectValue("do");
@@ -340,9 +340,9 @@ function parseFor(stream: TokenStream) {
       block.push(parseStatement(stream));
     }
     const lastToken = stream.expectValue("end");
-    return new ForEachNode(firstToken, identifier, list, block, lastToken);
+    return new ForEachNode(firstToken, new LoopVariable(loopVariable), list, block, lastToken);
   } else {
-    const identifier = stream.expectType(IdentifierToken);
+    const loopVariable = stream.expectType(IdentifierToken);
     stream.expectValue("from");
     const from = parseExpression(stream);
     stream.expectValue("to");
@@ -357,7 +357,7 @@ function parseFor(stream: TokenStream) {
       block.push(parseStatement(stream));
     }
     const lastToken = stream.expectValue("end");
-    return new ForNode(firstToken, identifier, from, to, step, block, lastToken);
+    return new ForNode(firstToken, new LoopVariable(loopVariable), from, to, step, block, lastToken);
   }
 }
 
