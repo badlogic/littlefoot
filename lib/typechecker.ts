@@ -872,14 +872,14 @@ function checkFunctionNode(node: FunctionLiteralNode | FunctionNode, context: Ty
 }
 
 function isAssignableTo(from: AstNode, to: Type): boolean {
-  resolveEmtpyListAndMapTypesInLiteral(from, to);
-  resolveLiteralValuesToUnions(from, to);
+  assignTypesToEmptyListAndMapLiterals(from, to);
+  expandLiteralValueTypesToUnions(from, to);
   if (!typeIsAssignableTo(from.type, to)) return false;
   return true;
 }
 
 // FIXME this needs to be recursive somehow...
-function resolveLiteralValuesToUnions(from: AstNode, to: Type) {
+function expandLiteralValueTypesToUnions(from: AstNode, to: Type) {
   if (hasUnion(to)) {
     if (from.kind == "list literal" && from.type.kind == "list" && to.kind == "list") {
       if (to.elementType.kind == "union") {
@@ -887,7 +887,7 @@ function resolveLiteralValuesToUnions(from: AstNode, to: Type) {
       } else if (to.elementType.kind == "list") {
         if (!isEqual(from.type.elementType, to.elementType)) {
           for (const element of from.elements) {
-            resolveLiteralValuesToUnions(element, to.elementType);
+            expandLiteralValueTypesToUnions(element, to.elementType);
           }
           from.type.setElementType(nodeListToType(from.elements));
         }
@@ -898,7 +898,7 @@ function resolveLiteralValuesToUnions(from: AstNode, to: Type) {
       } else {
         if (!isEqual(from.type.valueType, to.valueType)) {
           for (const element of from.values) {
-            resolveLiteralValuesToUnions(element, to.valueType);
+            expandLiteralValueTypesToUnions(element, to.valueType);
           }
           from.type.setValueType(nodeListToType(from.values));
         }
@@ -911,7 +911,7 @@ function resolveLiteralValuesToUnions(from: AstNode, to: Type) {
         let found = false;
         for (const toField of to.fields) {
           if (fieldName.value !== toField.name) continue;
-          resolveLiteralValuesToUnions(fieldValue, toField.type);
+          expandLiteralValueTypesToUnions(fieldValue, toField.type);
           found = true;
           break;
         }
@@ -929,7 +929,7 @@ function resolveLiteralValuesToUnions(from: AstNode, to: Type) {
 
 // Finds empty lists and maps in literals and infers their type based on to
 // `to` type.
-function resolveEmtpyListAndMapTypesInLiteral(from: AstNode, to: Type): boolean {
+function assignTypesToEmptyListAndMapLiterals(from: AstNode, to: Type): boolean {
   if (hasEmptyListOrMap(from.type)) {
     // The from type has an empty list or map literal in it. We need to infer
     // its type if possible. The from type must be a (nested) list, map, or record at
@@ -946,7 +946,7 @@ function resolveEmtpyListAndMapTypesInLiteral(from: AstNode, to: Type): boolean 
         // unknown type. Recursively check and resolve the unknown types
         // of empty list or map literal values.
         for (const element of from.elements) {
-          if (!resolveEmtpyListAndMapTypesInLiteral(element, to.elementType)) return false;
+          if (!assignTypesToEmptyListAndMapLiterals(element, to.elementType)) return false;
         }
         from.type.setElementType(nodeListToType(from.elements));
         return true;
@@ -962,7 +962,7 @@ function resolveEmtpyListAndMapTypesInLiteral(from: AstNode, to: Type): boolean 
         // unknown type. Recursively check and resolve the unknown types
         // of the values.
         for (const value of from.values) {
-          if (!resolveEmtpyListAndMapTypesInLiteral(value, to.valueType)) return false;
+          if (!assignTypesToEmptyListAndMapLiterals(value, to.valueType)) return false;
         }
 
         // Update the map literal's type.
@@ -983,7 +983,7 @@ function resolveEmtpyListAndMapTypesInLiteral(from: AstNode, to: Type): boolean 
         let found = false;
         for (const toField of to.fields) {
           if (fieldName.value !== toField.name) continue;
-          if (resolveEmtpyListAndMapTypesInLiteral(fieldValue, toField.type)) {
+          if (assignTypesToEmptyListAndMapLiterals(fieldValue, toField.type)) {
             found = true;
             break;
           }
