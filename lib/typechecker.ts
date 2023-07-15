@@ -904,6 +904,25 @@ function resolveLiteralValuesToUnions(from: AstNode, to: Type) {
         }
       }
     } else if (from.kind == "record literal" && from.type.kind == "record" && to.kind == "record") {
+      if (from.fieldValues.length < to.fields.length) return;
+      for (let i = 0; i < from.fieldValues.length; i++) {
+        const fieldName = from.fieldNames[i];
+        const fieldValue = from.fieldValues[i];
+        let found = false;
+        for (const toField of to.fields) {
+          if (fieldName.value !== toField.name) continue;
+          resolveLiteralValuesToUnions(fieldValue, toField.type);
+          found = true;
+          break;
+        }
+        if (!found) return;
+      }
+      for (let i = 0; i < from.fieldValues.length; i++) {
+        from.type.fields[i].type = from.fieldValues[i].type;
+      }
+      from.type.updateSignature();
+    } else if (to.kind == "union") {
+      from.type = unifyUnions(from.type, to);
     }
   }
 }
