@@ -878,7 +878,6 @@ function isAssignableTo(from: AstNode, to: Type): boolean {
   return true;
 }
 
-// FIXME this needs to be recursive somehow...
 function expandLiteralValueTypesToUnions(from: AstNode, to: Type) {
   if (hasUnion(to)) {
     if (from.kind == "list literal" && from.type.kind == "list" && to.kind == "list") {
