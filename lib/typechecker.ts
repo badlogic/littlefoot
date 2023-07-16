@@ -954,10 +954,13 @@ function checkFunctionNode(node: FunctionLiteralNode | FunctionNode, context: Ty
  * if `from` is assignable to `to`.
  *
  * Type inference for `from` is necessary if `from` has empty list or map
- * literals. The types of these literals are inferred from `to`.
+ * literals, so the runtime can instantiate the correct types for the empty
+ * lists and map literals. The types of these literals are inferred from `to`.
  *
- * Type inference is also necessary if `to` contains unions. The types for
- * corresponding values in `from` will be expaned to these unions if possible.
+ * Type inference is also necessary if `to` contains unions and `from` contains
+ * list, map, or record literals, so the runtime can instantiate the correct
+ * types for the literal values. The types for corresponding literal values in
+ * `from` will be expaned to the union types in `to` if possible.
  */
 function isAssignableTo(from: AstNode, to: Type): boolean {
   assignTypesToEmptyListAndMapLiterals(from, to);
@@ -1211,77 +1214,6 @@ function assignTypesToEmptyListAndMapLiterals(from: AstNode, to: Type): boolean 
   }
 }
 
-function hasEmptyListOrMap(type: Type) {
-  let found = false;
-  traverseType(type, (type) => {
-    if (type.kind == "list" && type.elementType.signature == UnknownType.signature) {
-      // Using signature because scoreFunction copies types.
-      found = true;
-      return false;
-    }
-    if (type.kind == "map" && type.valueType.signature == UnknownType.signature) {
-      // Using signature because scoreFunction copies types.
-      found = true;
-      return false;
-    }
-    return true;
-  });
-  return found;
-}
-
-function hasUnion(type: Type) {
-  let found = false;
-  traverseType(type, (type) => {
-    if (type.kind == "union") {
-      found = true;
-      return false;
-    }
-    return true;
-  });
-  return found;
-}
-
-function unify(a: Type, union: UnionType) {
-  const seenSignatures = new Set<string>();
-  const unionTypes: Type[] = [];
-
-  if (a.kind == "union") {
-    for (const type of a.types) {
-      if (!seenSignatures.has(type.signature)) {
-        seenSignatures.add(type.signature);
-        unionTypes.push(type);
-      }
-    }
-  } else {
-    seenSignatures.add(a.signature);
-    unionTypes.push(a);
-  }
-
-  for (const type of union.types) {
-    if (!seenSignatures.has(type.signature)) {
-      seenSignatures.add(type.signature);
-      unionTypes.push(type);
-    }
-  }
-  return new UnionType(unionTypes.length == 0 ? [UnknownType] : unionTypes);
-}
-
-function nodeListToType(nodes: AstNode[]) {
-  const seenSignatures = new Set<string>();
-  const elementTypes: Type[] = [];
-  for (const node of nodes) {
-    if (!seenSignatures.has(node.type.signature)) {
-      seenSignatures.add(node.type.signature);
-      elementTypes.push(node.type);
-    }
-  }
-  if (elementTypes.length == 0) {
-    return UnknownType;
-  } else {
-    return elementTypes.length == 1 ? elementTypes[0] : new UnionType(elementTypes);
-  }
-}
-
 function getClosestFunction(context: TypeCheckerContext, name: string, args: AstNode[]) {
   const funcs = context.module.functions.get(name);
   if (!funcs) return null;
@@ -1362,4 +1294,75 @@ function scoreFunction(func: NamedFunction, args: AstNode[]) {
   }
   if (!match) return Number.MAX_VALUE;
   return score;
+}
+
+function hasEmptyListOrMap(type: Type) {
+  let found = false;
+  traverseType(type, (type) => {
+    if (type.kind == "list" && type.elementType.signature == UnknownType.signature) {
+      // Using signature because scoreFunction copies types.
+      found = true;
+      return false;
+    }
+    if (type.kind == "map" && type.valueType.signature == UnknownType.signature) {
+      // Using signature because scoreFunction copies types.
+      found = true;
+      return false;
+    }
+    return true;
+  });
+  return found;
+}
+
+function hasUnion(type: Type) {
+  let found = false;
+  traverseType(type, (type) => {
+    if (type.kind == "union") {
+      found = true;
+      return false;
+    }
+    return true;
+  });
+  return found;
+}
+
+function unify(a: Type, union: UnionType) {
+  const seenSignatures = new Set<string>();
+  const unionTypes: Type[] = [];
+
+  if (a.kind == "union") {
+    for (const type of a.types) {
+      if (!seenSignatures.has(type.signature)) {
+        seenSignatures.add(type.signature);
+        unionTypes.push(type);
+      }
+    }
+  } else {
+    seenSignatures.add(a.signature);
+    unionTypes.push(a);
+  }
+
+  for (const type of union.types) {
+    if (!seenSignatures.has(type.signature)) {
+      seenSignatures.add(type.signature);
+      unionTypes.push(type);
+    }
+  }
+  return new UnionType(unionTypes.length == 0 ? [UnknownType] : unionTypes);
+}
+
+function nodeListToType(nodes: AstNode[]) {
+  const seenSignatures = new Set<string>();
+  const elementTypes: Type[] = [];
+  for (const node of nodes) {
+    if (!seenSignatures.has(node.type.signature)) {
+      seenSignatures.add(node.type.signature);
+      elementTypes.push(node.type);
+    }
+  }
+  if (elementTypes.length == 0) {
+    return UnknownType;
+  } else {
+    return elementTypes.length == 1 ? elementTypes[0] : new UnionType(elementTypes);
+  }
 }
