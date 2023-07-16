@@ -949,6 +949,16 @@ function checkFunctionNode(node: FunctionLiteralNode | FunctionNode, context: Ty
   }
 }
 
+/**
+ * Inferres types for `from` if necessary based on `to`, then checks
+ * if `from` is assignable to `to`.
+ *
+ * Type inference for `from` is necessary if `from` has empty list or map
+ * literals. The types of these literals are inferred from `to`.
+ *
+ * Type inference is also necessary if `to` contains unions. The types for
+ * corresponding values in `from` will be expaned to these unions if possible.
+ */
 function isAssignableTo(from: AstNode, to: Type): boolean {
   assignTypesToEmptyListAndMapLiterals(from, to);
   expandLiteralValueTypesToUnions(from, to);
