@@ -76,6 +76,7 @@ export const keywords = [
   "for",
   "from",
   "each",
+  "in",
   "to",
   "step",
   "end",

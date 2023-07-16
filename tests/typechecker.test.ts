@@ -3,6 +3,51 @@ import { compile } from "../lib/compiler";
 import { ListType, MapType, NameAndType, NamedType, NothingType, NumberType, RecordType, StringType, UnionType } from "../lib/types";
 
 describe("Typechecker tests", () => {
+  it("Should perform more structural typing.", () => {
+    const { errors } = compile(
+      "source.lf",
+      new MemorySourceLoader({
+        path: "source.lf",
+        text: `
+        type color = <r: number, g: number, b: number>
+        func color(r: number, g: number, b: number): color
+          return <r: r, g: g, b: b>
+        end
+
+        type colored = <color: color>
+
+        type car = colored + <kind: string>
+        func car(color: color, kind: string): car
+          return <color: color, kind: kind>
+        end
+
+        type bike = colored + <kind: string>
+        func bike(color: color, kind: string): bike
+          return <color: color, kind: kind>
+        end
+
+        func printColor(coloredThing: colored | [colored])
+          if coloredThing is colored then
+            # print the thing
+          elseif coloredThing is [colored] then
+            for each thing in coloredThing do
+              # print the thing
+            end
+          end
+        end
+
+        var beetle = car(color(255, 0, 0), "beetle")
+        printColor(beetle)
+
+        var brompton = bike(color(255, 0, 255), "brompton")
+        printColor(brompton)
+        var things = [beetle, brompton]
+        printColor(things)
+        `,
+      })
+    );
+  });
+
   it("Should perform structural typing.", () => {
     const { errors } = compile(
       "source.lf",
@@ -139,6 +184,7 @@ describe("Typechecker tests", () => {
 
         var r: <m: [number], r: <f: [string]>> = <m: [], r: <f: []>>
         var s: <x: number | string> = <x: 0>
+        var xx: <x: number | string> | number = <x: 0>
 
         var z: [[[number|string]]] = [[[0, 1]], [[], ["string"]]]
 

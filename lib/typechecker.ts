@@ -1092,6 +1092,8 @@ function expandLiteralValueTypesToUnions(from: AstNode, to: Type) {
 // Finds empty lists and maps in literals and infers their type based on to
 // `to` type.
 function assignTypesToEmptyListAndMapLiterals(from: AstNode, to: Type): boolean {
+  const originalTo = to;
+  to = to.kind == "named type" || to.kind == "named function" ? to.type : to;
   if (hasEmptyListOrMap(from.type)) {
     // The from type has an empty list or map literal in it. We need to infer
     // its type if possible. The from type must be a (nested) list, map, or record at
@@ -1103,7 +1105,7 @@ function assignTypesToEmptyListAndMapLiterals(from: AstNode, to: Type): boolean 
         // UnknownType. Assign the to type.
         if (from.type.elementType.signature == UnknownType.signature) {
           // Using signature because scoreFunction copies types.
-          from.type = to;
+          from.type = originalTo;
           return true;
         } else {
           // Otherwise, the from list literal has a nested value with an
@@ -1120,7 +1122,7 @@ function assignTypesToEmptyListAndMapLiterals(from: AstNode, to: Type): boolean 
         const listTypes = to.types.filter((type) => type.kind == "list");
         if (listTypes.length == 0) {
           // If there's no list type in the union, the empty list type can not be inferred.
-          throw new LittleFootError(from.location, `Can not infer type for empty list literal from target type ${to.signature}`);
+          throw new LittleFootError(from.location, `Can not infer type for empty list literal from target type ${originalTo.signature}`);
         } else if (listTypes.length == 1) {
           // If the union contains 1 list type, try to assign that as the empty list type
           return assignTypesToEmptyListAndMapLiterals(from, listTypes[0]);
@@ -1128,7 +1130,7 @@ function assignTypesToEmptyListAndMapLiterals(from: AstNode, to: Type): boolean 
           // If there are > 1 list types, the type is undecideable
           throw new LittleFootError(
             from.location,
-            `Can not infer type for empty list literal from target type ${to.signature}. Candidates:\n${listTypes
+            `Can not infer type for empty list literal from target type ${originalTo.signature}. Candidates:\n${listTypes
               .map((type) => "\t" + type.signature)
               .join("\n")}`
           );
@@ -1142,7 +1144,7 @@ function assignTypesToEmptyListAndMapLiterals(from: AstNode, to: Type): boolean 
         // UnknownType. Assign the to type.
         if (from.type.kind == "map" && from.type.valueType.signature == UnknownType.signature) {
           // Using signature because scoreFunction copies types.
-          from.type = to;
+          from.type = originalTo;
           return true;
         } else {
           // Otherwise, the from map literal has a nested value with an
@@ -1161,7 +1163,7 @@ function assignTypesToEmptyListAndMapLiterals(from: AstNode, to: Type): boolean 
         const mapTypes = to.types.filter((type) => type.kind == "map");
         if (mapTypes.length == 0) {
           // If there's no list type in the union, the empty list type can not be inferred.
-          throw new LittleFootError(from.location, `Can not infer type for empty map literal from target type ${to.signature}`);
+          throw new LittleFootError(from.location, `Can not infer type for empty map literal from target type ${originalTo.signature}`);
         } else if (mapTypes.length == 1) {
           // If the union contains 1 list type, try to assign that as the empty list type
           return assignTypesToEmptyListAndMapLiterals(from, mapTypes[0]);
@@ -1169,7 +1171,7 @@ function assignTypesToEmptyListAndMapLiterals(from: AstNode, to: Type): boolean 
           // If there are > 1 list types, the type is undecideable
           throw new LittleFootError(
             from.location,
-            `Can not infer type for empty map literal from target type ${to.signature}. Candidates:\n${mapTypes
+            `Can not infer type for empty map literal from target type ${originalTo.signature}. Candidates:\n${mapTypes
               .map((type) => type.signature)
               .join("\n")}`
           );

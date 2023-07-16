@@ -294,36 +294,40 @@ export class Types {
   }
 }
 
-export function isEqual(a: Type, b: Type) {
+export function isEqual(from: Type, to: Type) {
   // Unpack the type of named types.
-  if (a.kind == "named function" || a.kind == "named type") {
-    a = a.type;
+  if (from.kind == "named function" || from.kind == "named type") {
+    from = from.type;
   }
-  if (b.kind == "named function" || b.kind == "named type") {
-    b = b.type;
+  if (to.kind == "named function" || to.kind == "named type") {
+    to = to.type;
   }
 
-  if (a.kind == "primitive" && b.kind == "primitive") {
+  if (from.kind == "primitive" && to.kind == "primitive") {
     // Primitive types must match by name exactly.
-    return a.name == b.name;
-  } else if (a.kind == "list" && b.kind == "list") {
+    return from.name == to.name;
+  } else if (from.kind == "list" && to.kind == "list") {
     // List types must have equal element types.
-    return isEqual(a.elementType, b.elementType);
-  } else if (a.kind == "map" && b.kind == "map") {
+    return isEqual(from.elementType, to.elementType);
+  } else if (from.kind == "map" && to.kind == "map") {
     // Map types must have equal value types.
-    return isEqual(a.valueType, b.valueType);
-  } else if (a.kind == "record" && b.kind == "record") {
+    return isEqual(from.valueType, to.valueType);
+  } else if (from.kind == "record" && to.kind == "record") {
     // Records must have the same number of fields. Each
     // pair of fields must match in both name and type.
-    if (a.fields.length != b.fields.length) return false;
-    for (let i = 0; i < a.fields.length; i++) {
-      const aField = a.fields[i];
-      const bField = b.fields[i];
-      if (aField.name != bField.name) return false;
-      if (!isEqual(aField.type, bField.type)) return false;
+    if (from.fields.length != to.fields.length) return false;
+    for (let i = 0; i < from.fields.length; i++) {
+      const fromField = from.fields[i];
+      let found = false;
+      for (const toField of to.fields) {
+        if (fromField.name !== toField.name) continue;
+        found = true;
+        if (!isEqual(fromField.type, toField.type)) return false;
+      }
+      if (!found) return false;
     }
     return true;
-  } else if (a.kind == "union" && b.kind == "union") {
+  } else if (from.kind == "union" && to.kind == "union") {
     // Unions must have the same number of types. Each type
     // of a must be found in b.
     //
@@ -337,12 +341,12 @@ export function isEqual(a: Type, b: Type) {
     // These two types are not equal, even though all types
     // of a can be found in b. The current implementation will
     // report these two types as equal.
-    if (a.types.length != b.types.length) return false;
-    for (let i = 0; i < a.types.length; i++) {
-      const aType = a.types[i];
+    if (from.types.length != to.types.length) return false;
+    for (let i = 0; i < from.types.length; i++) {
+      const aType = from.types[i];
       let found = false;
-      for (let j = 0; j < b.types.length; j++) {
-        const bType = b.types[j];
+      for (let j = 0; j < to.types.length; j++) {
+        const bType = to.types[j];
         if (isEqual(aType, bType)) {
           found = true;
           break;
@@ -351,16 +355,16 @@ export function isEqual(a: Type, b: Type) {
       if (!found) return false;
     }
     return true;
-  } else if (a.kind == "function" && b.kind == "function") {
+  } else if (from.kind == "function" && to.kind == "function") {
     // Functions must have the same number of parameters. Each
     // parameter pair must have equal types. The return types
     // must also be equal. The parameter names
     // are irrelevant for equality.
-    if (a.parameters.length != b.parameters.length) return false;
-    for (let i = 0; i < a.parameters.length; i++) {
-      if (!isEqual(a.parameters[i].type, b.parameters[i].type)) return false;
+    if (from.parameters.length != to.parameters.length) return false;
+    for (let i = 0; i < from.parameters.length; i++) {
+      if (!isEqual(from.parameters[i].type, to.parameters[i].type)) return false;
     }
-    if (!isEqual(a.returnType, b.returnType)) return false;
+    if (!isEqual(from.returnType, to.returnType)) return false;
     return true;
   } else {
     return false;
@@ -427,14 +431,12 @@ export function isAssignableTo(from: Type, to: Type): boolean {
     //
     // However, if we can assign all fields of from to a subset of fields
     // of record to, we can assign from to to.
-    // FIXME this is wrong for assignments I think?
-    // var v: <x: number, y: number> = <x: 0, y: 0, z: 0>
     if (from.fields.length < to.fields.length) return false;
     let matchedFields = 0;
     for (const fromField of from.fields) {
       let found = false;
       for (const toField of to.fields) {
-        if (fromField.name !== toField.name) break;
+        if (fromField.name !== toField.name) continue;
         if (isAssignableTo(fromField.type, toField.type)) {
           matchedFields++;
           if (matchedFields == to.fields.length) return true;
