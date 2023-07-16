@@ -365,8 +365,8 @@ export class MemberAccessNode extends BaseAstNode {
 
 export class MapOrListAccessNode extends BaseAstNode {
   public readonly kind: "map or list access" = "map or list access";
-  constructor(public readonly target: ExpressionNode, public readonly keyOrIndex: ExpressionNode, lastToken: Token) {
-    super(SourceLocation.from(target.location, lastToken.location));
+  constructor(openingBracket: Token, public readonly target: ExpressionNode, public readonly keyOrIndex: ExpressionNode, lastToken: Token) {
+    super(SourceLocation.from(openingBracket.location, lastToken.location));
   }
 }
 

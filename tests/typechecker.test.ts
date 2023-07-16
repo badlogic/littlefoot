@@ -3,6 +3,27 @@ import { compile } from "../lib/compiler";
 import { ListType, MapType, NameAndType, NamedType, NothingType, NumberType, RecordType, StringType, UnionType } from "../lib/types";
 
 describe("Typechecker tests", () => {
+  it("Should perform structural typing.", () => {
+    const { errors } = compile(
+      "source.lf",
+      new MemorySourceLoader({
+        path: "source.lf",
+        text: `
+        func bar(v: [<x: number>])
+        end
+
+        bar([<x: 0, y: 0>])
+
+        func foo(v: [[<x: number>]] | [<x: number>])
+        end
+
+        foo([[<x: 0, y: 0, z: 0>]])
+
+        `,
+      })
+    );
+    expect(errors.length).toBe(0);
+  });
   it("Should select the correct function based on argument types", () => {
     const { errors } = compile(
       "source.lf",
@@ -11,17 +32,30 @@ describe("Typechecker tests", () => {
         text: `
         type vector = <x: number, y: number>
 
-        func add(a: vector, b: vector)
+        func add(a: vector, b: vector): vector
           return <x: a.x + b.x, y: a.y + b.y>
         end
 
-        func mul(v: vector, scalar: number)
+        func mul(v: vector, scalar: number): vector
           return <x: v.x * scalar, y: v.y * scalar>
         end
 
         var a: vector = <x: 0, y: 0>
         var b: vector = <x: 0, y: 0>
         var c = a.add(b).mul(2)
+
+        func sumX(xs: [<x: number>])
+          var sum = 0
+          for each x in xs do
+            sum = sum + x.x
+          end
+          for i from 0 to xs.length step 1 do
+            sum = sum + xs[i].x
+          end
+          return sum
+        end
+
+        sumX([a, b, c])
 
         var list = [
           func(a: number) return a + 1 end,
@@ -72,10 +106,10 @@ describe("Typechecker tests", () => {
 
         f(n)
         f([0])
-
         `,
       })
     );
+    expect(errors.length).toBe(0);
   });
 
   it("Should infer types for empty list and map literals and expand literal types to unions", () => {
@@ -84,30 +118,34 @@ describe("Typechecker tests", () => {
       new MemorySourceLoader({
         path: "source.lf",
         text: `
-        # This is a test
-        #var c:[[number] | number | [string]] = []
-        #c = [ ]
-        #var d:[[number]] = [[]]
-        #var e:[[number]] = [[], [], [0]]
-        #var f:[[number] | number | [string]] = []
-        #var g:[[number]|[string]] = [[:string], [0]]
-        #var i:[[number]|[string]] = []
-        #i = [[0], ["string"]]
-        #var x: number | string = 0
-        #var h: [number|string] = [0]
-        #var m: {number} = {}
-        #m = {}
-        #var n:{{number}} = {"a": {}}
-        #var o:{{number}} = {"a": {}, "b": {}, "c": { "d": 0}}
-        #var p:{{number} | number | {string}} = {}
-        #var q:{{number}|{string}} = {"a": {:string}, "b": {"c": 0}}
-        #a = {"a": {:number}, "b": {:number}}
-        #var x: {number|string} = {"a": 0}
+        var c:[[number] | number | [string]] = []
+        c = [ ]
+        var d:[[number]] = [[]]
+        var e:[[number]] = [[], [], [0]]
+        var f:[[number] | number | [string]] = []
+        var g:[[number]|[string]] = [[:string], [0]]
+        var i:[[number]|[string]] = []
+        i = [[0], ["string"]]
+        var x: number | string = 0
+        var h: [number|string] = [0]
+        var m: {number} = {}
+        m = {}
+        var n:{{number}} = {"a": {}}
+        var o:{{number}} = {"a": {}, "b": {}, "c": { "d": 0}}
+        var p:{{number} | number | {string}} = {}
+        var q:{{number}|{string}} = {"a": {:string}, "b": {"c": 0}}
+        q = {"a": {:number}, "b": {:number}}
+        var y: {number|string} = {"a": 0}
 
-        #var r: <m: [number], r: <f: [string]>> = <m: [], r: <f: []>>
-        #var s: <x: number | string> = <x: 0>
+        var r: <m: [number], r: <f: [string]>> = <m: [], r: <f: []>>
+        var s: <x: number | string> = <x: 0>
 
         var z: [[[number|string]]] = [[[0, 1]], [[], ["string"]]]
+
+        func foo(v: [[<x: number>]] | [<x: number>])
+        end
+
+        foo([[<x: 0, y: 0, z: 0>]])
         `,
       })
     );

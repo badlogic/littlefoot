@@ -39,7 +39,7 @@ export class SymbolScopes {
     return undefined;
   }
 
-  add(node: Symbol, allowShadow = false) {
+  add(node: Symbol, allowShadow = true) {
     let scopes = this.scopes;
     for (var i = scopes.length - 1; i >= 0; i--) {
       let scope = scopes[i];
@@ -269,6 +269,7 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
         }
         (node.type as NamedType).type = node.typeNode.type;
         node.type = node.typeNode.type;
+        return;
       }
       break;
     }
@@ -786,10 +787,15 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
               node.location,
               `Could not find function '${node.target.name.value}' with matching parameters (${node.args
                 .map((arg) => arg.type.signature)
-                .join(",")}). Candidates: \n${functions
-                .get(node.target.name.value)
-                ?.map((func) => "\t" + func.signature)
-                .join("\n")}`
+                .join(",")}). ${
+                functions.get(node.target.name.value)
+                  ? "Candidates: \n" +
+                    functions
+                      .get(node.target.name.value)!
+                      .map((func) => "\t" + func.signature)
+                      .join("\n")
+                  : ""
+              }`
             );
           }
           if (closestFunc.length > 1) {
@@ -885,7 +891,7 @@ function checkFunctionNode(node: FunctionLiteralNode | FunctionNode, context: Ty
   context.scopes.push();
   for (const parameter of node.parameters) {
     checkNodeTypes(parameter, context);
-    context.scopes.add(parameter, true);
+    context.scopes.add(parameter);
   }
 
   if (node.returnType) checkNodeTypes(node.returnType, context);
@@ -950,13 +956,23 @@ function isAssignableTo(from: AstNode, to: Type): boolean {
   return true;
 }
 
+/**
+ * Expands list, map, and record literal types to unions if the
+ * to type is a union.
+ */
 function expandLiteralValueTypesToUnions(from: AstNode, to: Type) {
   if (hasUnion(to)) {
     if (from.kind == "list literal" && from.type.kind == "list") {
+      // If from is a list literal and to is a list type expand
+      // from's element type to a union if necessary.
       if (to.kind == "list") {
         if (to.elementType.kind == "union") {
+          // If to's element type is a union, unify from's element type
+          // with the union.
           from.type.setElementType(unify(from.type.elementType, to.elementType));
         } else if (to.elementType.kind == "list") {
+          // Otherwise, if to's element type is a list, expand from's
+          // value types recursively.
           if (!isEqual(from.type.elementType, to.elementType)) {
             for (const element of from.elements) {
               expandLiteralValueTypesToUnions(element, to.elementType);
@@ -964,12 +980,32 @@ function expandLiteralValueTypesToUnions(from: AstNode, to: Type) {
             from.type.setElementType(nodeListToType(from.elements));
           }
         }
+      } else if (to.kind == "union") {
+        // If to is a union, check if any of the union types are
+        // compatible list types. If so, assign to's union type
+        // to the from's type.
+        let found = false;
+        for (const unionType of to.types) {
+          if (typeIsAssignableTo(from.type, unionType)) {
+            found = true;
+            break;
+          }
+        }
+        if (found) {
+          from.type = to;
+        }
       }
     } else if (from.kind == "map literal" && from.type.kind == "map") {
+      // If from is a map literal and to is a map type expand
+      // from's value type to a union if necessary.
       if (to.kind == "map") {
         if (to.valueType.kind == "union") {
+          // If to's value type is a union, unify from's value type
+          // with the union.
           from.type.setValueType(unify(from.type.valueType, to.valueType));
         } else {
+          // Otherwise, if to's value type is a list, expand from's
+          // value types recursively.
           if (!isEqual(from.type.valueType, to.valueType)) {
             for (const element of from.values) {
               expandLiteralValueTypesToUnions(element, to.valueType);
@@ -977,26 +1013,64 @@ function expandLiteralValueTypesToUnions(from: AstNode, to: Type) {
             from.type.setValueType(nodeListToType(from.values));
           }
         }
-      }
-    } else if (from.kind == "record literal" && from.type.kind == "record" && to.kind == "record") {
-      if (from.fieldValues.length < to.fields.length) return;
-      for (let i = 0; i < from.fieldValues.length; i++) {
-        const fieldName = from.fieldNames[i];
-        const fieldValue = from.fieldValues[i];
+      } else if (to.kind == "union") {
+        // If to is a union, check if any of the union types are
+        // compatible list types. If so, assign to's union type
+        // to the from's type.
         let found = false;
-        for (const toField of to.fields) {
-          if (fieldName.value !== toField.name) continue;
-          expandLiteralValueTypesToUnions(fieldValue, toField.type);
-          found = true;
-          break;
+        for (const unionType of to.types) {
+          if (typeIsAssignableTo(from.type, unionType)) {
+            found = true;
+            break;
+          }
         }
-        if (!found) return;
+        if (found) {
+          from.type = to;
+        }
       }
-      for (let i = 0; i < from.fieldValues.length; i++) {
-        from.type.fields[i].type = from.fieldValues[i].type;
+    } else if (from.kind == "record literal" && from.type.kind == "record") {
+      // If from is a record literal and to is a record type expand
+      // from's field types to a union if necessary.
+      if (to.kind == "record") {
+        // If from has less fields than to, the two record types
+        // can't be compatible so don't do anything.
+        if (from.fieldValues.length < to.fields.length) return;
+
+        for (let i = 0; i < from.fieldValues.length; i++) {
+          const fieldName = from.fieldNames[i];
+          const fieldValue = from.fieldValues[i];
+          let found = false;
+          for (const toField of to.fields) {
+            if (fieldName.value !== toField.name) continue;
+            expandLiteralValueTypesToUnions(fieldValue, toField.type);
+            found = true;
+            break;
+          }
+          if (!found) return;
+        }
+        for (let i = 0; i < from.fieldValues.length; i++) {
+          from.type.fields[i].type = from.fieldValues[i].type;
+        }
+        from.type.updateSignature();
+      } else if (to.kind == "union") {
+        // Otherwise, if to is a union, check if there's a record type
+        // in the union that matches, and if so, set from's type
+        // to be to's union type.
+        let found = false;
+        for (const unionType of to.types) {
+          if (typeIsAssignableTo(from.type, unionType)) {
+            found = true;
+            break;
+          }
+        }
+        if (found) {
+          from.type = to;
+        }
       }
-      from.type.updateSignature();
     } else if (to.kind == "union") {
+      // Otherwise, if from is a built-in type and to is union
+      // set from's type to the unified union of its type and to's
+      // union type.
       from.type = unify(from.type, to);
     }
   }
@@ -1042,7 +1116,7 @@ function assignTypesToEmptyListAndMapLiterals(from: AstNode, to: Type): boolean 
           throw new LittleFootError(
             from.location,
             `Can not infer type for empty list literal from target type ${to.signature}. Candidates:\n${listTypes
-              .map((type) => type.signature)
+              .map((type) => "\t" + type.signature)
               .join("\n")}`
           );
         }
@@ -1202,6 +1276,8 @@ function getClosestFunction(context: TypeCheckerContext, name: string, args: Ast
   const funcs = context.module.functions.get(name);
   if (!funcs) return null;
 
+  // Score each function. scoreFunction will return a score of Number.MAX_VALUE
+  // if the function isn't compatible with the arguments.
   const scoredFunctions: { score: number; func: NamedFunction }[] = [];
   for (const func of funcs) {
     const score = scoreFunction(func, args);
@@ -1209,12 +1285,18 @@ function getClosestFunction(context: TypeCheckerContext, name: string, args: Ast
       scoredFunctions.push({ score, func });
     }
   }
-  scoredFunctions.sort((a, b) => b.score - a.score);
   if (scoredFunctions.length == 0) return null;
+
+  // Sort functions from highest to lowest score.
+  scoredFunctions.sort((a, b) => b.score - a.score);
+
+  // Filter the functions to end up with a list of
+  // candidate functions that share the highest score.
   const bestScore = scoredFunctions[0].score;
   const candidates = scoredFunctions.filter((scoredFunc) => scoredFunc.score == bestScore).map((scoredFunc) => scoredFunc.func);
 
-  // If we found a single candidate, type empty lists and expand literal value types to union types.
+  // If we found a single candidate, type empty lists and expand literal value types to union types
+  // in the arguments.
   if (candidates.length == 1) {
     const func = candidates[0];
     for (let i = 0; i < args.length; i++) {
@@ -1231,27 +1313,41 @@ function scoreFunction(func: NamedFunction, args: AstNode[]) {
 
   let match = true;
   let score = 0;
-  for (let i = 0; i < args.length; i++) {
-    const param = func.type.parameters[i].type;
-    const arg = args[i];
-    if (isEqual(arg.type, param)) {
-      score += 2;
-    } else {
-      // Need to copy the argument node, as isAssignableTo
-      // may modify its type hierarchy.
-      const copiedArg = JSON.parse(JSON.stringify(arg));
-      try {
-        // isAssignableTo can throw in case the type
-        // of an empty list can not be resolved.
-        if (isAssignableTo(copiedArg, param)) {
+  const originalArgTypes: Type[] = [];
+  try {
+    // For each argument, calculate a score:
+    // 1. If the types match, add 2 to the score
+    // 2. If the argument type is assignable to the
+    //    parameter type, add 1 to the score
+    //
+    // This way functions with more direct type matches
+    // between arguments and parameters will score higher
+    // overall.
+    for (let i = 0; i < args.length; i++) {
+      const param = func.type.parameters[i].type;
+      const arg = args[i];
+      originalArgTypes.push(arg.type);
+      if (isEqual(arg.type, param)) {
+        score += 2;
+      } else {
+        // Need to copy the argument node, as isAssignableTo
+        // may modify its type hierarchy.
+        arg.type = arg.type.copy();
+        if (isAssignableTo(arg, param)) {
           score += 1;
         } else {
           match = false;
           break;
         }
-      } catch (e) {
-        return Number.MAX_VALUE;
       }
+    }
+  } catch (e) {
+    // isAssignableTo above can throw in case the type
+    // of an empty list can not be resolved.
+    return Number.MAX_VALUE;
+  } finally {
+    for (let i = 0; i < args.length; i++) {
+      args[i].type = originalArgTypes[i];
     }
   }
   if (!match) return Number.MAX_VALUE;

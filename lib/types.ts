@@ -3,7 +3,10 @@ import { LittleFootError } from "./error";
 import { SourceLocation } from "./source";
 
 export abstract class BaseType {
+  public abstract kind: string;
   constructor(public signature: string) {}
+
+  abstract copy(): Type;
 }
 
 export class NameAndType {
@@ -17,8 +20,8 @@ export class PrimitiveType extends BaseType {
     super(name);
   }
 
-  protected resolveSignature(): string {
-    return this.name;
+  copy(): PrimitiveType {
+    return new PrimitiveType(this.name);
   }
 }
 
@@ -33,6 +36,10 @@ export class ListType extends BaseType {
     this.elementType = elementType;
     this.signature = "[" + elementType.signature + "]";
   }
+
+  copy(): ListType {
+    return new ListType(this.elementType.copy());
+  }
 }
 
 export class MapType extends BaseType {
@@ -45,6 +52,10 @@ export class MapType extends BaseType {
   setValueType(valueType: Type) {
     this.valueType = valueType;
     this.signature = "{" + valueType.signature + "}";
+  }
+
+  copy(): MapType {
+    return new MapType(this.valueType.copy());
   }
 }
 
@@ -72,6 +83,10 @@ export class RecordType extends BaseType {
         .join(",") +
       ">";
   }
+
+  copy(): RecordType {
+    return new RecordType(this.fields.map((field) => new NameAndType(field.name, field.type.copy())));
+  }
 }
 
 export class FunctionType extends BaseType {
@@ -79,6 +94,11 @@ export class FunctionType extends BaseType {
 
   constructor(public readonly parameters: NameAndType[], public returnType: Type) {
     super("(" + parameters.map((param) => param.type.signature).join(",") + "):" + returnType.signature);
+  }
+
+  copy(): FunctionType {
+    const paramsCopy = this.parameters.map((param) => new NameAndType(param.name, param.type.copy()));
+    return new FunctionType(paramsCopy, this.returnType.copy());
   }
 }
 
@@ -93,6 +113,10 @@ export class UnionType extends BaseType {
         .join("|")
     );
   }
+
+  copy(): UnionType {
+    return new UnionType(this.types.map((type) => type.copy()));
+  }
 }
 
 export class NamedType extends BaseType {
@@ -100,6 +124,10 @@ export class NamedType extends BaseType {
 
   constructor(public readonly name: string, public type: Type, public typeNode: TypeNode, public readonly location: SourceLocation) {
     super(name);
+  }
+
+  copy(): NamedType {
+    return new NamedType(this.name, this.type.copy(), this.typeNode, this.location);
   }
 }
 
@@ -115,6 +143,10 @@ export class NamedFunction extends BaseType {
     public readonly location: SourceLocation
   ) {
     super(name + type.signature);
+  }
+
+  copy(): NamedFunction {
+    return new NamedFunction(this.name, this.type.copy(), this.code, this.exported, this.external, this.location);
   }
 }
 
@@ -381,33 +413,38 @@ export function isAssignableTo(from: Type, to: Type): boolean {
       return true;
     }
   } else if (from.kind == "list" && to.kind == "list") {
-    // For lists, the element types must be equal.
-    return isEqual(from.elementType, to.elementType);
+    // For lists, the element types must be assignable
+    // for records, and equal for everything else.
+    return isAssignableTo(from.elementType, to.elementType);
   } else if (from.kind == "map" && to.kind == "map") {
-    // For maps, the value types must be equal.
-    return isEqual(from.valueType, to.valueType);
+    // For maps, the element types must be assignable
+    // for records, and equal for everything else.
+    return isAssignableTo(from.valueType, to.valueType);
   } else if (from.kind == "record" && to.kind == "record") {
-    // We only get here if isEqual(a, b) was false, which means
+    // We only get here if isEqual(from, to) was false, which means
     // the two record types don't have the same number or exact
     // types of fields.
     //
-    // However, if we can assign all fields of a to a subset of fields
-    // of record b, we can assign a to b.
+    // However, if we can assign all fields of from to a subset of fields
+    // of record to, we can assign from to to.
     // FIXME this is wrong for assignments I think?
     // var v: <x: number, y: number> = <x: 0, y: 0, z: 0>
     if (from.fields.length < to.fields.length) return false;
+    let matchedFields = 0;
     for (const fromField of from.fields) {
       let found = false;
       for (const toField of to.fields) {
         if (fromField.name !== toField.name) break;
-        if (isEqual(fromField.type, toField.type)) {
+        if (isAssignableTo(fromField.type, toField.type)) {
+          matchedFields++;
+          if (matchedFields == to.fields.length) return true;
           found = true;
           break;
         }
       }
       if (!found) return false;
-      return true;
     }
+    return true;
   } else if (from.kind == "function" && to.kind == "function") {
     // For functions, the number of parameters must match,
     // and the parameter types of `from` must be assignable to
@@ -422,5 +459,4 @@ export function isAssignableTo(from: Type, to: Type): boolean {
   } else {
     return false;
   }
-  return false;
 }

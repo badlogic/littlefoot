@@ -508,7 +508,7 @@ function parseAccessOrCallOrLiteral(stream: TokenStream) {
 
 function parseAccessOrCall(stream: TokenStream) {
   let result: ExpressionNode = new VariableAccessNode(stream.expectType(IdentifierToken));
-  while (stream.hasMore() && stream.matchValues(["(", "[", "."])) {
+  while (stream.hasMore() && stream.matchValues(["(", "[", ".", ";"])) {
     if (stream.matchValue("(")) {
       const openingParanthesis = stream.expectValue("(");
       const args = parseArguments(stream);
@@ -527,10 +527,12 @@ function parseAccessOrCall(stream: TokenStream) {
       const openingBracket = stream.expectValue("[");
       const keyOrIndex = parseExpression(stream);
       const lastToken = stream.expectValue("]");
-      result = new MapOrListAccessNode(result, keyOrIndex, lastToken);
+      result = new MapOrListAccessNode(openingBracket, result, keyOrIndex, lastToken);
     } else if (stream.matchValue(".", true)) {
       const identifier = stream.expectType(IdentifierToken);
       result = new MemberAccessNode(result, identifier);
+    } else if (stream.matchValue(";", true)) {
+      break;
     }
   }
   return result;
