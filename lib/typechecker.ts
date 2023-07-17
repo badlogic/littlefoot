@@ -804,9 +804,7 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
           if (!closestFunc) {
             throw new LittleFootError(
               node.location,
-              `Could not find function '${node.target.name.value}' with matching parameters (${node.args
-                .map((arg) => arg.type.signature)
-                .join(",")}). ${
+              `Could not find function '${node.target.name.value}(${node.args.map((arg) => arg.type.signature).join(",")})'. ${
                 functions.get(node.target.name.value)
                   ? "Candidates: \n" +
                     functions
@@ -882,9 +880,7 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
       if (!closestFunc) {
         throw new LittleFootError(
           node.location,
-          `Could not find function '${node.target.member.value}' with matching parameters (${args
-            .map((arg) => arg.type.signature)
-            .join(",")}). Candidates: \n${functions
+          `Could not find function '${node.target.member.value}(${args.map((arg) => arg.type.signature).join(",")})'. Candidates: \n${functions
             .get(node.target.member.value)
             ?.map((func) => "\t" + func.signature)
             .join("\n")}`

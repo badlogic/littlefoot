@@ -14,6 +14,13 @@ describe("Typechecker tests", () => {
         type car = colored + <kind: string>
         type bike = colored + <kind: string, foldable: boolean>
 
+        var brompton = bike(color(255, 0, 0), "brompton", true)
+        var beetle = car(color(255, 0, 255), "beetle")
+        var things = [beetle, brompton]
+
+        printColor(things)
+        foo(things)
+
         func foo(v: [colored])
         end
 
@@ -26,14 +33,6 @@ describe("Typechecker tests", () => {
             end
           end
         end
-
-
-        var brompton: bike = <color: <r: 255, b: 0, g: 0>, kind: "brompton", foldable: true>
-        var beetle: car = <color: <r: 255, g: 0, b: 0>, kind: "beetle">
-        var things = [beetle, brompton]
-
-        printColor(things)
-        foo(things)
         `,
       })
     );
