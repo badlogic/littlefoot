@@ -96,8 +96,9 @@ export function checkTypes(context: TypeCheckerContext) {
     }
   }
 
-  // For each named type, replace the UnknownType with the real type. Detects circular types
-  // in checkNodeTypes() case "type reference".
+  // For each named type, replace their UnknownType with the real type by
+  // recursive type resolution in checkNodeTypes() cases "type reference" and
+  // "type declaration".
   for (const type of namedTypes) {
     try {
       checkNodeTypes(type, context);
@@ -111,6 +112,22 @@ export function checkTypes(context: TypeCheckerContext) {
     }
   }
   if (errors.length > 0) return;
+
+  // Generate constructor functions for every named type that is a record.
+  for (const type of namedTypes) {
+    if (type.type.kind == "named type" && type.type.type.kind == "record") {
+      const funcType = new FunctionType(type.type.type.fields, type.type);
+      const func = new NamedFunction(
+        type.name.value,
+        funcType,
+        new FunctionLiteralNode(type.name, [], null, [], type.name.location),
+        true,
+        true,
+        type.name.location
+      );
+      functions.add(func);
+    }
+  }
 
   // Gather named functions and assign their parameter types. The return type is
   // assigned lazily once the function is encountered during AST traversal below,
@@ -254,8 +271,7 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
       const type = types.get(node.name.value)! as NamedType;
       // If we are in the type resolution phase, we might encounter types
       // that haven't been resolved yet in other type declarations. Resolve
-      // them here. Set a marker type the first time, so we can detect
-      // circular types.
+      // them here.
       if (type.type == UnknownType) {
         checkNodeTypes(type.typeNode, context);
       }
@@ -263,13 +279,8 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
       break;
     }
     case "type declaration": {
-      // We set the type of type declaration nodes to new NamedType("name", UnknownType) in
-      // checkTypes(). When we first resolve the type of a type declaration, we check the
-      // type of the right hand side of the assignement, replace the UnknownType in the
-      // NamedType with it, then assign the plain type to the node itself.
-      // All type declaration nodes are checked a second time as part of iterating over all statements
-      // in the module AST in checkTypes(). We do not have to do anything anymore in that case, as the
-      // type is fully defined and checked.
+      // Recursively resolve the type. Also resolves other named types
+      // via the "type reference" case above.
       if (node.type.kind == "named type") {
         const type = types.get(node.name.value)! as NamedType;
         type.type = ResolvingTypeMarker;
@@ -278,7 +289,7 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
           throw new LittleFootError(node.name.location, `Internal compiler error: named type '${node.name.value}' should have a type set.`);
         }
         (node.type as NamedType).type = node.typeNode.type;
-        node.type = node.typeNode.type;
+        // node.type = node.typeNode.type;
         return;
       }
       break;
