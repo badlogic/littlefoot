@@ -76,7 +76,7 @@ export class TypeCheckerContext {
 }
 
 export function checkTypes(context: TypeCheckerContext) {
-  const { ast, types } = context.module;
+  const { ast, types, functions } = context.module;
   const errors = context.compilerContext.errors;
 
   // Gather named type nodes. These are named types that other
@@ -112,6 +112,16 @@ export function checkTypes(context: TypeCheckerContext) {
   }
   if (errors.length > 0) return;
 
+  // Gather named functions and assign their parameter types. The return type is
+  // assigned lazily once the function is encountered during AST traversal below,
+  // through a second call to `checkFunctionNode()`.
+  const namedFunctions = ast.filter((node) => node.kind == "function declaration") as FunctionNode[];
+  for (const func of namedFunctions) {
+    const functionType = checkFunctionNode(func, context, false);
+    const namedFunction = new NamedFunction(func.name.value, functionType, func, func.exported, func.external, func.location);
+    functions.add(namedFunction);
+  }
+
   // All named types are defined, assign and check the types of all AST nodes. This will also add all named functions
   // to module.functions, see the "function declaration" case in checkNodeTypes().
   for (const node of ast) {
@@ -128,7 +138,7 @@ export function checkTypes(context: TypeCheckerContext) {
 
   // Finally check that we have no unknown and named types in the AST.
   for (const node of ast) {
-    // Ignore type declaration nodes
+    // Ignore type and function declaration nodes
     if (node.kind == "type declaration") continue;
     try {
       traverseAst(node, (node) => {
@@ -285,9 +295,7 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
       break; // no-op, handled in "import" case above
     }
     case "function declaration": {
-      const functionType = checkFunctionNode(node, context);
-      const namedFunction = new NamedFunction(node.name.value, functionType, node.code, node.exported, node.external, node.location);
-      functions.add(namedFunction);
+      checkFunctionNode(node, context, true);
       break;
     }
     case "variable declaration": {
@@ -887,7 +895,7 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
   }
 }
 
-function checkFunctionNode(node: FunctionLiteralNode | FunctionNode, context: TypeCheckerContext) {
+function checkFunctionNode(node: FunctionLiteralNode | FunctionNode, context: TypeCheckerContext, checkCode = true) {
   context.scopes.push();
   for (const parameter of node.parameters) {
     checkNodeTypes(parameter, context);
@@ -896,56 +904,65 @@ function checkFunctionNode(node: FunctionLiteralNode | FunctionNode, context: Ty
 
   if (node.returnType) checkNodeTypes(node.returnType, context);
 
-  for (const statement of node.code) {
-    checkNodeTypes(statement, context);
+  if (checkCode) {
+    for (const statement of node.code) {
+      checkNodeTypes(statement, context);
+    }
   }
   context.scopes.pop();
 
-  // If a return type was given, check that the returned expressions are assignable to it.
-  // FIXME we actually need a CFG here. If one exit path doesn't
-  // return anything, we need to check nothing against the returned type.
-  if (node.returnType) {
-    const returnType = node.returnType.type;
-    for (const statement of node.code) {
-      traverseAst(statement, (node) => {
-        if (node.kind == "return") {
-          if (!isAssignableTo(node, returnType)) {
-            throw new LittleFootError(
-              node.location,
-              `Can not return a value of type '${node.type.signature}' from a function with return type '${returnType.signature}'.`
-            );
-          }
-        }
-        return true;
-      });
-    }
-    const functionType = new FunctionType(
-      node.parameters.map((parameter) => new NameAndType(parameter.name.value, parameter.type)),
-      node.returnType.type
-    );
-    node.type = functionType;
-    return functionType;
-  } else {
-    // Otherwise gather the types and infere the return type.
+  if (checkCode) {
+    // If a return type was given, check that the returned expressions are assignable to it.
     // FIXME we actually need a CFG here. If one exit path doesn't
-    // return anything, we need to add nothing to the infered type
-    const returns: ReturnNode[] = [];
-    for (const statement of node.code) {
-      traverseAst(statement, (node) => {
-        if (node.kind == "return") {
-          returns.push(node);
-        }
-        return true;
-      });
+    // return anything, we need to check nothing against the returned type.
+    if (node.returnType) {
+      const returnType = node.returnType.type;
+      for (const statement of node.code) {
+        traverseAst(statement, (node) => {
+          if (node.kind == "return") {
+            if (!isAssignableTo(node, returnType)) {
+              throw new LittleFootError(
+                node.location,
+                `Can not return a value of type '${node.type.signature}' from a function with return type '${returnType.signature}'.`
+              );
+            }
+          }
+          return true;
+        });
+      }
+      const functionType = new FunctionType(
+        node.parameters.map((parameter) => new NameAndType(parameter.name.value, parameter.type)),
+        node.returnType.type
+      );
+      node.type = functionType;
+      return functionType;
+    } else {
+      // Otherwise gather the types and infere the return type.
+      // FIXME we actually need a CFG here. If one exit path doesn't
+      // return anything, we need to add nothing to the infered type
+      const returns: ReturnNode[] = [];
+      for (const statement of node.code) {
+        traverseAst(statement, (node) => {
+          if (node.kind == "return") {
+            returns.push(node);
+          }
+          return true;
+        });
+      }
+      const returnTypes = returns.map((ret) => (ret.type.kind == "named function" || ret.type.kind == "named type" ? ret.type.type : ret.type));
+      if (returnTypes.length == 0) returnTypes.push(NothingType);
+      const functionType = new FunctionType(
+        node.parameters.map((parameter) => new NameAndType(parameter.name.value, parameter.type)),
+        returnTypes.length == 1 ? returnTypes[0] : new UnionType(returnTypes)
+      );
+      node.type = functionType;
+      return functionType;
     }
-    const returnTypes = returns.map((ret) => (ret.type.kind == "named function" || ret.type.kind == "named type" ? ret.type.type : ret.type));
-    if (returnTypes.length == 0) returnTypes.push(NothingType);
-    const functionType = new FunctionType(
+  } else {
+    return new FunctionType(
       node.parameters.map((parameter) => new NameAndType(parameter.name.value, parameter.type)),
-      returnTypes.length == 1 ? returnTypes[0] : new UnionType(returnTypes)
+      UnknownType
     );
-    node.type = functionType;
-    return functionType;
   }
 }
 
@@ -956,137 +973,12 @@ function checkFunctionNode(node: FunctionLiteralNode | FunctionNode, context: Ty
  * Type inference for `from` is necessary if `from` has empty list or map
  * literals, so the runtime can instantiate the correct types for the empty
  * lists and map literals. The types of these literals are inferred from `to`.
- *
- * Type inference is also necessary if `to` contains unions and `from` contains
- * list, map, or record literals, so the runtime can instantiate the correct
- * types for the literal values. The types for corresponding literal values in
- * `from` will be expaned to the union types in `to` if possible.
  */
 function isAssignableTo(from: AstNode, to: Type): boolean {
   assignTypesToEmptyListAndMapLiterals(from, to);
-  expandLiteralValueTypesToUnions(from, to);
+  // expandLiteralValueTypesToUnions(from, to);
   if (!typeIsAssignableTo(from.type, to)) return false;
   return true;
-}
-
-/**
- * Expands list, map, and record literal types to unions if the
- * to type is a union.
- */
-function expandLiteralValueTypesToUnions(from: AstNode, to: Type) {
-  if (hasUnion(to)) {
-    if (from.kind == "list literal" && from.type.kind == "list") {
-      // If from is a list literal and to is a list type expand
-      // from's element type to a union if necessary.
-      if (to.kind == "list") {
-        if (to.elementType.kind == "union") {
-          // If to's element type is a union, unify from's element type
-          // with the union.
-          from.type.setElementType(unify(from.type.elementType, to.elementType));
-        } else if (to.elementType.kind == "list") {
-          // Otherwise, if to's element type is a list, expand from's
-          // value types recursively.
-          if (!isEqual(from.type.elementType, to.elementType)) {
-            for (const element of from.elements) {
-              expandLiteralValueTypesToUnions(element, to.elementType);
-            }
-            from.type.setElementType(nodeListToType(from.elements));
-          }
-        }
-      } else if (to.kind == "union") {
-        // If to is a union, check if any of the union types are
-        // compatible list types. If so, assign to's union type
-        // to the from's type.
-        let found = false;
-        for (const unionType of to.types) {
-          if (typeIsAssignableTo(from.type, unionType)) {
-            found = true;
-            break;
-          }
-        }
-        if (found) {
-          from.type = to;
-        }
-      }
-    } else if (from.kind == "map literal" && from.type.kind == "map") {
-      // If from is a map literal and to is a map type expand
-      // from's value type to a union if necessary.
-      if (to.kind == "map") {
-        if (to.valueType.kind == "union") {
-          // If to's value type is a union, unify from's value type
-          // with the union.
-          from.type.setValueType(unify(from.type.valueType, to.valueType));
-        } else {
-          // Otherwise, if to's value type is a list, expand from's
-          // value types recursively.
-          if (!isEqual(from.type.valueType, to.valueType)) {
-            for (const element of from.values) {
-              expandLiteralValueTypesToUnions(element, to.valueType);
-            }
-            from.type.setValueType(nodeListToType(from.values));
-          }
-        }
-      } else if (to.kind == "union") {
-        // If to is a union, check if any of the union types are
-        // compatible list types. If so, assign to's union type
-        // to the from's type.
-        let found = false;
-        for (const unionType of to.types) {
-          if (typeIsAssignableTo(from.type, unionType)) {
-            found = true;
-            break;
-          }
-        }
-        if (found) {
-          from.type = to;
-        }
-      }
-    } else if (from.kind == "record literal" && from.type.kind == "record") {
-      // If from is a record literal and to is a record type expand
-      // from's field types to a union if necessary.
-      if (to.kind == "record") {
-        // If from has less fields than to, the two record types
-        // can't be compatible so don't do anything.
-        if (from.fieldValues.length < to.fields.length) return;
-
-        for (let i = 0; i < from.fieldValues.length; i++) {
-          const fieldName = from.fieldNames[i];
-          const fieldValue = from.fieldValues[i];
-          let found = false;
-          for (const toField of to.fields) {
-            if (fieldName.value !== toField.name) continue;
-            expandLiteralValueTypesToUnions(fieldValue, toField.type);
-            found = true;
-            break;
-          }
-          if (!found) return;
-        }
-        for (let i = 0; i < from.fieldValues.length; i++) {
-          from.type.fields[i].type = from.fieldValues[i].type;
-        }
-        from.type.updateSignature();
-      } else if (to.kind == "union") {
-        // Otherwise, if to is a union, check if there's a record type
-        // in the union that matches, and if so, set from's type
-        // to be to's union type.
-        let found = false;
-        for (const unionType of to.types) {
-          if (typeIsAssignableTo(from.type, unionType)) {
-            found = true;
-            break;
-          }
-        }
-        if (found) {
-          from.type = to;
-        }
-      }
-    } else if (to.kind == "union") {
-      // Otherwise, if from is a built-in type and to is union
-      // set from's type to the unified union of its type and to's
-      // union type.
-      from.type = unify(from.type, to);
-    }
-  }
 }
 
 // Finds empty lists and maps in literals and infers their type based on to
@@ -1224,6 +1116,10 @@ function getClosestFunction(context: TypeCheckerContext, name: string, args: Ast
   // if the function isn't compatible with the arguments.
   const scoredFunctions: { score: number; func: NamedFunction }[] = [];
   for (const func of funcs) {
+    if (func.type.returnType == UnknownType) {
+      checkFunctionNode(func.ast, context, true);
+      func.updateReturnType();
+    }
     const score = scoreFunction(func, args);
     if (score != Number.MAX_VALUE) {
       scoredFunctions.push({ score, func });
@@ -1258,6 +1154,9 @@ function scoreFunction(func: NamedFunction, args: AstNode[]) {
   let match = true;
   let score = 0;
   const originalArgTypes: Type[] = [];
+  for (const arg of args) {
+    originalArgTypes.push(arg.type);
+  }
   try {
     // For each argument, calculate a score:
     // 1. If the types match, add 2 to the score
@@ -1270,7 +1169,6 @@ function scoreFunction(func: NamedFunction, args: AstNode[]) {
     for (let i = 0; i < args.length; i++) {
       const param = func.type.parameters[i].type;
       const arg = args[i];
-      originalArgTypes.push(arg.type);
       if (isEqual(arg.type, param)) {
         score += 2;
       } else {

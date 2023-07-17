@@ -1,4 +1,4 @@
-import { AstNode, TypeNode } from "./ast";
+import { AstNode, FunctionLiteralNode, FunctionNode, TypeNode } from "./ast";
 import { LittleFootError } from "./error";
 import { SourceLocation } from "./source";
 
@@ -96,6 +96,11 @@ export class FunctionType extends BaseType {
     super("(" + parameters.map((param) => param.type.signature).join(",") + "):" + returnType.signature);
   }
 
+  setReturnType(returnType: Type) {
+    this.returnType = returnType;
+    this.signature = "(" + this.parameters.map((param) => param.type.signature).join(",") + "):" + returnType.signature;
+  }
+
   copy(): FunctionType {
     const paramsCopy = this.parameters.map((param) => new NameAndType(param.name, param.type.copy()));
     return new FunctionType(paramsCopy, this.returnType.copy());
@@ -137,7 +142,7 @@ export class NamedFunction extends BaseType {
   constructor(
     public readonly name: string,
     public type: FunctionType,
-    public code: AstNode[],
+    public ast: FunctionNode | FunctionLiteralNode,
     public readonly exported: boolean,
     public readonly external: boolean,
     public readonly location: SourceLocation
@@ -145,8 +150,13 @@ export class NamedFunction extends BaseType {
     super(name + type.signature);
   }
 
+  updateReturnType() {
+    this.type = this.ast.type as FunctionType;
+    this.signature = this.name + this.type.signature;
+  }
+
   copy(): NamedFunction {
-    return new NamedFunction(this.name, this.type.copy(), this.code, this.exported, this.external, this.location);
+    return new NamedFunction(this.name, this.type.copy(), this.ast, this.exported, this.external, this.location);
   }
 }
 
@@ -389,7 +399,13 @@ export function isAssignableTo(from: Type, to: Type): boolean {
   // Non-exact matches are handled below.
   if (isEqual(from, to)) return true;
 
-  if (to.kind == "union") {
+  if (from.kind == "union" && to.kind != "union") {
+    // If `to` is not a union, then all types in `from` must be assignable to `to`.
+    for (const type of from.types) {
+      if (!isAssignableTo(type, to)) return true;
+    }
+    return true;
+  } else if (to.kind == "union") {
     // If `from` is a union and `to` is not, it can not be assigned.
     // This is why we start by checking if `to` is a union.
     //

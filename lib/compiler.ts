@@ -1,7 +1,8 @@
-import { AstNode, StatementNode } from "./ast";
+import { AstNode, FunctionLiteralNode, FunctionNode, StatementNode } from "./ast";
 import { LittleFootError } from "./error";
 import { parse } from "./parser";
 import { Source, SourceLoader, SourceLocation } from "./source";
+import { IdentifierToken, Token } from "./tokenizer";
 import { TypeCheckerContext, checkTypes } from "./typechecker";
 import { FunctionType, Functions, NamedFunction, NothingType, Types } from "./types";
 
@@ -43,10 +44,10 @@ export function compile(path: string, sourceLoader: SourceLoader) {
   // Extract all top level statements into a generated $main function.
   const mainStatements = module.ast.filter((node) => {
     return node.kind != "import" && node.kind != "function declaration" && node.kind != "type declaration";
-  });
-  module.functions.add(
-    new NamedFunction("$main", new FunctionType([], NothingType), mainStatements, false, false, new SourceLocation(source, 0, source.text.length))
-  );
+  }) as StatementNode[];
+  const mainLocation = new SourceLocation(source, 0, source.text.length);
+  const mainNode = new FunctionLiteralNode(new IdentifierToken(mainLocation, source.text), [], null, mainStatements, mainLocation);
+  module.functions.add(new NamedFunction("$main", new FunctionType([], NothingType), mainNode, false, false, mainLocation));
 
   checkTypes(new TypeCheckerContext(module, context));
   return context;

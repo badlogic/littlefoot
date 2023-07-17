@@ -10,20 +10,11 @@ describe("Typechecker tests", () => {
         path: "source.lf",
         text: `
         type color = <r: number, g: number, b: number>
-        func color(r: number, g: number, b: number): color
-          return <r: r, g: g, b: b>
-        end
-
         type colored = <color: color>
-
         type car = colored + <kind: string>
-        func car(color: color, kind: string): car
-          return <color: color, kind: kind>
-        end
+        type bike = colored + <kind: string, foldable: boolean>
 
-        type bike = colored + <kind: string>
-        func bike(color: color, kind: string): bike
-          return <color: color, kind: kind>
+        func foo(v: [colored])
         end
 
         func printColor(coloredThing: colored | [colored])
@@ -36,13 +27,13 @@ describe("Typechecker tests", () => {
           end
         end
 
-        var beetle = car(color(255, 0, 0), "beetle")
-        printColor(beetle)
 
-        var brompton = bike(color(255, 0, 255), "brompton")
-        printColor(brompton)
+        var brompton: bike = <color: <r: 255, b: 0, g: 0>, kind: "brompton", foldable: true>
+        var beetle: car = <color: <r: 255, g: 0, b: 0>, kind: "beetle">
         var things = [beetle, brompton]
+
         printColor(things)
+        foo(things)
         `,
       })
     );
