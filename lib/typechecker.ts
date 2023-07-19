@@ -681,6 +681,17 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
       checkNodeTypes(node.typeNode, context);
       node.type = BooleanType;
       break;
+    case "as operator":
+      checkNodeTypes(node.leftExpression, context);
+      checkNodeTypes(node.typeNode, context);
+      if (!isAssignableTo(node.leftExpression, node.typeNode.type)) {
+        throw new LittleFootError(
+          node.leftExpression.location,
+          `Can not widen a '${node.leftExpression.type.signature}' to a '${node.typeNode.type.signature}'`
+        );
+      }
+      node.type = node.typeNode.type;
+      break;
     case "list literal": {
       const seenSignatures = new Set<string>();
       const elementTypes: Type[] = [];

@@ -69,7 +69,7 @@ export function defineLittleFootLanguage() {
   });
   monaco.languages.setMonarchTokensProvider("littlefoot", {
     escapes: /\\(?:[abfnrtv\\"']|x[0-9A-Fa-f]{1,4}|u[0-9A-Fa-f]{4}|U[0-9A-Fa-f]{8})/,
-    keywords: [...keywords, "is"],
+    keywords: [...keywords, "is", "as"],
     brackets: [
       { open: "{", close: "}", token: "delimiter.curly" },
       { open: "[", close: "]", token: "delimiter.bracket" },

@@ -28,6 +28,7 @@ export type ExpressionNode =
   | BinaryOperatorNode
   | UnaryOperatorNode
   | IsOperatorNode
+  | AsOperatorNode
   | StringLiteralNode
   | NumberLiteralNode
   | BooleanLiteralNode
@@ -282,6 +283,13 @@ export class IsOperatorNode extends BaseAstNode {
   }
 }
 
+export class AsOperatorNode extends BaseAstNode {
+  public readonly kind: "as operator" = "as operator";
+  constructor(public readonly leftExpression: ExpressionNode, public readonly typeNode: TypeSpecifierNode) {
+    super(SourceLocation.from(leftExpression.location, typeNode.location));
+  }
+}
+
 export class StringLiteralNode extends BaseAstNode {
   public readonly kind: "string" = "string";
   constructor(public readonly token: StringToken) {
@@ -515,6 +523,7 @@ export function traverseAst(node: AstNode, callback: (node: AstNode) => boolean)
       traverseAst(node.expression, callback);
       break;
     case "is operator":
+    case "as operator":
       traverseAst(node.leftExpression, callback);
       traverseAst(node.typeNode, callback);
       break;

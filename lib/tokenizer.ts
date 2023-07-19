@@ -87,7 +87,7 @@ export const keywords = [
 ];
 let keywordsLookup = new Set(keywords);
 // prettier-ignore
-export const operatorsList = [ "=", "!", "|", "&", "^", "==", "!=", ">", ">=", "<", "<=", "+", "-", "*", "/", "%", "(", ")", "[", "]", ".", "?", ":", ",", "{", "}", "is", ";"].sort((a, b) => b.length - a.length);
+export const operatorsList = [ "=", "!", "|", "&", "^", "==", "!=", ">", ">=", "<", "<=", "+", "-", "*", "/", "%", "(", ")", "[", "]", ".", "?", ":", ",", "{", "}", "is", "as", ";"].sort((a, b) => b.length - a.length);
 const operatorStarts = new Set(operatorsList.map((operator) => operator.charAt(0)));
 const operators = new Set(operatorsList);
 

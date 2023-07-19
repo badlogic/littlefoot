@@ -2,7 +2,7 @@ import { LittleFootError } from "./error";
 // prettier-ignore
 import { tokenize, TokenStream, IdentifierToken, StringToken, NumberToken, NothingToken, RecordOpeningToken, OperatorToken } from "./tokenizer";
 // prettier-ignore
-import { ListLiteralNode, ListTypeNode, BinaryOperatorNode, BooleanLiteralNode, DoNode, ExpressionNode, ForEachNode, ForNode, FunctionCallNode, FunctionLiteralNode, FunctionNode, FunctionTypeNode, IfNode, IsOperatorNode, MapLiteralNode, MapOrListAccessNode, MapTypeNode, MemberAccessNode, MethodCallNode, NameAndTypeNode, NothingLiteralNode, NumberLiteralNode, StatementNode, StringLiteralNode, TernaryOperatorNode, TypeSpecifierNode, UnaryOperatorNode, VariableAccessNode, VariableNode, WhileNode, RecordTypeNode, RecordLiteralNode, ContinueNode, BreakNode, ReturnNode, TypeNode, TypeReferenceNode as TypeNameNode, AstNode, MixinTypeNode, UnionTypeNode, ImportNode, ImportedNameNode, LoopVariable } from "./ast";
+import { ListLiteralNode, ListTypeNode, BinaryOperatorNode, BooleanLiteralNode, DoNode, ExpressionNode, ForEachNode, ForNode, FunctionCallNode, FunctionLiteralNode, FunctionNode, FunctionTypeNode, IfNode, IsOperatorNode, MapLiteralNode, MapOrListAccessNode, MapTypeNode, MemberAccessNode, MethodCallNode, NameAndTypeNode, NothingLiteralNode, NumberLiteralNode, StatementNode, StringLiteralNode, TernaryOperatorNode, TypeSpecifierNode, UnaryOperatorNode, VariableAccessNode, VariableNode, WhileNode, RecordTypeNode, RecordLiteralNode, ContinueNode, BreakNode, ReturnNode, TypeNode, TypeReferenceNode as TypeNameNode, AstNode, MixinTypeNode, UnionTypeNode, ImportNode, ImportedNameNode, LoopVariable, AsOperatorNode } from "./ast";
 import { Source, SourceLocation } from "./source";
 
 export enum Attribute {
@@ -386,7 +386,7 @@ function parseTernaryOperator(stream: TokenStream, context: ExpressionContext): 
   }
 }
 
-const binaryOperatorPrecedence = [["="], ["or", "and", "xor"], ["==", "!="], ["<", "<=", ">", ">="], ["+", "-"], ["/", "*", "%"], ["is"]];
+const binaryOperatorPrecedence = [["="], ["or", "and", "xor"], ["==", "!="], ["<", "<=", ">", ">="], ["+", "-"], ["/", "*", "%"], ["is"], ["as"]];
 
 function parseBinaryOperator(stream: TokenStream, level: number, context: ExpressionContext): ExpressionNode {
   const nextLevel = level + 1;
@@ -399,6 +399,9 @@ function parseBinaryOperator(stream: TokenStream, level: number, context: Expres
     if (operator.value == "is") {
       const type = parseTypeSpecifier(stream);
       leftExpression = new IsOperatorNode(leftExpression, type);
+    } else if (operator.value == "as") {
+      const type = parseTypeSpecifier(stream);
+      leftExpression = new AsOperatorNode(leftExpression, type);
     } else {
       const rightExpression =
         nextLevel == binaryOperatorPrecedence.length ? parseUnaryOperator(stream, context) : parseBinaryOperator(stream, nextLevel, context);
