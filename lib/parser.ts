@@ -28,11 +28,7 @@ export function parse(source: Source, errors: LittleFootError[]) {
       if (stream.matchValue("func")) {
         ast.push(parseFunction(stream, true, attributes));
       } else if (stream.matchValue("type")) {
-        const firstToken = stream.expectValue("type");
-        const name = stream.expectType(IdentifierToken);
-        stream.expectValue("=");
-        const type = parseTypeSpecifier(stream);
-        ast.push(new TypeNode(firstToken, name, type));
+        ast.push(parseType(stream, attributes));
       } else if (stream.matchValue("var")) {
         ast.push(parseVariable(stream, attributes));
       } else {
@@ -128,6 +124,17 @@ function parseVariable(stream: TokenStream, attributes: Attribute[] = []) {
     attributes.length == 1 && attributes[0] == Attribute.Export,
     firstToken.value == "const"
   );
+}
+
+function parseType(stream: TokenStream, attributes: Attribute[] = []) {
+  const firstToken = stream.expectValue("type");
+  const name = stream.expectType(IdentifierToken);
+  if (attributes.length > 1) throw new LittleFootError(name.location, `Expected only 'export' attribute but got '${attributes.join(",")}'`);
+  if (attributes.length == 1 && attributes[0] != Attribute.Export)
+    throw new LittleFootError(name.location, `Expected 'export' attribute but got '${attributes.join(",")}'`);
+  stream.expectValue("=");
+  const type = parseTypeSpecifier(stream);
+  return new TypeNode(firstToken, name, type, attributes.length == 1 && attributes[0] == Attribute.Export);
 }
 
 function parseTypeSpecifier(stream: TokenStream) {

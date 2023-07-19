@@ -107,7 +107,12 @@ export class MixinTypeNode extends BaseAstNode {
 export class TypeNode extends BaseAstNode {
   public readonly kind: "type declaration" = "type declaration";
 
-  constructor(firstToken: Token, public readonly name: IdentifierToken, public readonly typeNode: TypeSpecifierNode) {
+  constructor(
+    firstToken: Token,
+    public readonly name: IdentifierToken,
+    public readonly typeNode: TypeSpecifierNode,
+    public readonly exported: boolean
+  ) {
     super(SourceLocation.from(firstToken.location, typeNode.location));
   }
 }
@@ -156,8 +161,8 @@ export class VariableNode extends BaseAstNode {
     public readonly name: IdentifierToken,
     public typeNode: TypeSpecifierNode | null,
     public readonly initializer: ExpressionNode,
-    public readonly exported = false,
-    public readonly constant = false
+    public readonly exported: boolean,
+    public readonly constant: boolean
   ) {
     super(SourceLocation.from(firstToken.location, initializer.location));
   }
