@@ -1,10 +1,11 @@
 // prettier-ignore
-import {AstNode, DoNode, ForEachNode, ForNode, FunctionLiteralNode, FunctionNode, IsOperatorNode, LoopVariable, NameAndTypeNode, RecordLiteralNode, ReturnNode, TypeNode, TypeSpecifierNode, VariableAccessNode, VariableNode, WhileNode, traverseAst,} from "./ast";
+import {AstNode, DoNode, ForEachNode, ForNode, FunctionLiteralNode, FunctionNode, IsOperatorNode, ListLiteralNode, LoopVariable, MapLiteralNode, NameAndTypeNode, RecordLiteralNode, ReturnNode, TypeNode, TypeSpecifierNode, VariableAccessNode, VariableNode, WhileNode, traverseAst,} from "./ast";
 import { CompilerContext, Module } from "./compiler";
 import { LittleFootError } from "./error";
 import { SourceLocation } from "./source";
+import { Token } from "./tokenizer";
 // prettier-ignore
-import { BooleanType, FunctionType, ListType, MapType, NameAndType, NamedFunction, NamedType, NothingType, NumberType, RecordType, ResolvingTypeMarker, StringType, Type, UnionType, UnknownType, isAssignableTo as typeIsAssignableTo, isEqual, traverseType } from "./types";
+import { BooleanType, FunctionType, ListType, MapType, NameAndType, NamedFunction, NamedType, NothingType, NumberType, RecordType, ResolvingTypeMarker, StringType, Type, UnionType, UnknownType, isAssignableTo as typeIsAssignableTo, isEqual, traverseType, PrimitiveType } from "./types";
 
 function assertNever(x: never) {
   throw new Error("Unexpected object: " + x);
@@ -300,7 +301,6 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
       break;
     }
     case "import":
-      // FIXME implement imports
       throw new Error("Not implemented");
     case "imported name": {
       break; // no-op, handled in "import" case above
@@ -358,7 +358,6 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
 
       // Temporarily set the types of each variable found in the "is" operators
       // to the type specified in the operator.
-      // FIXME allow narrowing of MemberAccessNodes as well, instead of just VariableAccessNodes.
       for (const operator of isOperators) {
         if (operator.isOperator.leftExpression.kind != "variable access") {
           throw new LittleFootError(operator.isOperator.leftExpression.location, "Must be a variable.");
@@ -538,6 +537,18 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
             const symbol = scopes.get(node.leftExpression.name.value);
             if (!symbol) {
               throw new LittleFootError(node.leftExpression.name.location, `Could not find variable '${node.leftExpression.name.value}'.`);
+            }
+            if (symbol.kind == "loop variable") {
+              throw new LittleFootError(
+                node.leftExpression.name.location,
+                `Can not assign a new value to loop variable '${node.leftExpression.name.value}'`
+              );
+            }
+            if (symbol.kind == "variable declaration" && symbol.constant == true) {
+              throw new LittleFootError(
+                node.leftExpression.name.location,
+                `Can not assign a new value to constant '${node.leftExpression.name.value}'`
+              );
             }
             if (!isAssignableTo(node.rightExpression, node.leftExpression.type)) {
               throw new LittleFootError(
@@ -729,6 +740,14 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
       node.type = symbol.type;
       break;
     case "member access":
+      const checkBuiltinField = (fields: any) => {
+        const type = fields[node.member.value];
+        if (!type) {
+          throw new LittleFootError(node.member.location, `Field '${node.member.value}' does not exist on a '${node.object.type.signature}'.`);
+        }
+        node.type = type;
+      };
+
       checkNodeTypes(node.object, context);
       const type = node.object.type.kind == "named function" || node.object.type.kind == "named type" ? node.object.type.type : node.object.type;
       if (type.kind == "record") {
@@ -743,12 +762,20 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
         if (!found) {
           throw new LittleFootError(node.member.location, `Field '${node.member.value}' does not exist on a '${node.object.type.signature}'.`);
         }
-      } else if (type.kind == "list" || type.kind == "map" || type == StringType) {
-        // FIXME map also has keys:[string] and values:[valueType]
-        if (node.member.value !== "length") {
-          throw new LittleFootError(node.member.location, `Field '${node.member.value}' does not exist on a '${node.object.type.signature}'.`);
-        }
-        node.type = NumberType;
+      } else if (type.kind == "list") {
+        checkBuiltinField({
+          length: NumberType,
+        });
+      } else if (type.kind == "map") {
+        checkBuiltinField({
+          length: NumberType,
+          keys: new ListType(StringType),
+          values: new ListType(type.valueType),
+        });
+      } else if (type == StringType) {
+        checkBuiltinField({
+          length: NumberType,
+        });
       } else {
         throw new LittleFootError(node.member.location, `Field '${node.member.value}' does not exist on a '${node.object.type.signature}'.`);
       }
@@ -920,8 +947,6 @@ function checkFunctionNode(node: FunctionLiteralNode | FunctionNode, context: Ty
 
   if (checkCode) {
     // If a return type was given, check that the returned expressions are assignable to it.
-    // FIXME we actually need a CFG here. If one exit path doesn't
-    // return anything, we need to check nothing against the returned type.
     if (node.returnType) {
       const returnType = node.returnType.type;
       for (const statement of node.code) {
@@ -945,8 +970,6 @@ function checkFunctionNode(node: FunctionLiteralNode | FunctionNode, context: Ty
       return functionType;
     } else {
       // Otherwise gather the types and infere the return type.
-      // FIXME we actually need a CFG here. If one exit path doesn't
-      // return anything, we need to add nothing to the infered type
       const returns: ReturnNode[] = [];
       for (const statement of node.code) {
         traverseAst(statement, (node) => {

@@ -65,6 +65,7 @@ export const keywords = [
   "export",
   "external",
   "var",
+  "const",
   "func",
   "type",
   "if",

@@ -203,3 +203,5 @@ a.toNumber(12)
 _test
 
 a.b.toString()
+
+const blargh = 123

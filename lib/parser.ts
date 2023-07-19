@@ -89,7 +89,7 @@ function parseImport(stream: TokenStream): ImportNode {
 }
 
 function parseStatement(stream: TokenStream): StatementNode {
-  if (stream.matchValue("var")) {
+  if (stream.matchValue("var") || stream.matchValue("const")) {
     return parseVariable(stream);
   } else if (stream.matchValue("if")) {
     return parseIf(stream);
@@ -112,7 +112,7 @@ function parseStatement(stream: TokenStream): StatementNode {
 }
 
 function parseVariable(stream: TokenStream, attributes: Attribute[] = []) {
-  const firstToken = stream.expectValue("var");
+  const firstToken = stream.matchValue("var") ? stream.expectValue("var") : stream.expectValue("const");
   const identifier = stream.expectType(IdentifierToken);
   if (attributes.length > 1) throw new LittleFootError(identifier.location, `Expected only 'export' attribute but got '${attributes.join(",")}'`);
   if (attributes.length == 1 && attributes[0] != Attribute.Export)
@@ -120,7 +120,14 @@ function parseVariable(stream: TokenStream, attributes: Attribute[] = []) {
   const type = stream.matchValue(":", true) ? parseTypeSpecifier(stream) : null;
   stream.expectValue("=");
   const initializer = parseExpression(stream);
-  return new VariableNode(firstToken, identifier, type, initializer, attributes.length == 1 && attributes[0] == Attribute.Export);
+  return new VariableNode(
+    firstToken,
+    identifier,
+    type,
+    initializer,
+    attributes.length == 1 && attributes[0] == Attribute.Export,
+    firstToken.value == "const"
+  );
 }
 
 function parseTypeSpecifier(stream: TokenStream) {
