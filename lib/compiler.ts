@@ -1,24 +1,26 @@
-import { AstNode, FunctionLiteralNode, FunctionNode, StatementNode } from "./ast";
+import { AstNode, FunctionLiteralNode, StatementNode, VariableNode } from "./ast";
 import { LittleFootError } from "./error";
 import { parse } from "./parser";
 import { Source, SourceLoader, SourceLocation } from "./source";
-import { IdentifierToken, Token } from "./tokenizer";
+import { IdentifierToken } from "./tokenizer";
 import { TypeCheckerContext, checkTypes } from "./typechecker";
-import { FunctionType, Functions, NamedFunction, NothingType, Types } from "./types";
+import { FunctionType, Functions, NamedFunctionType, NothingType, Types } from "./types";
 
 export class Module {
   constructor(
     public readonly path: string,
     public readonly types = new Types(),
     public readonly functions = new Functions(),
+    public readonly variables = new Map<string, VariableNode>(),
     public ast: AstNode[] = []
   ) {}
 }
 
 export class CompilerContext {
   public readonly errors: LittleFootError[] = [];
-  public readonly sources = new Map<String, Source>();
-  public readonly modules = new Map<String, Module>();
+  public readonly sources = new Map<string, Source>();
+  public readonly modules = new Map<string, Module>();
+  public readonly moduleStack = new Array<Module>();
 
   constructor(public readonly sourceLoader: SourceLoader) {}
 
@@ -33,11 +35,43 @@ export class CompilerContext {
 
 export function compile(path: string, sourceLoader: SourceLoader) {
   const context = new CompilerContext(sourceLoader);
-  const source = context.getSource(path);
-  if (!source) throw new Error(`Couldn't find source with path '${path}'`);
+  compileModule(path, context);
+  return context;
+}
 
-  const module = new Module(path);
-  context.modules.set(path, module);
+function resolvePath(path: string): string {
+  const parts = path.split("/");
+  const resolvedPath = [];
+
+  for (const part of parts) {
+    if (part === "..") {
+      resolvedPath.pop();
+    } else {
+      resolvedPath.push(part);
+    }
+  }
+
+  return resolvedPath.join("/");
+}
+
+function getAbsolutePath(parentDir: string, path: string): string {
+  const parentDirWithoutFile = parentDir.split("/").slice(0, -1).join("/");
+  const resolvedParentDir = resolvePath(parentDirWithoutFile);
+  const combinedPath = resolvedParentDir.length == 0 ? path : `${resolvedParentDir}/${path}`;
+  const absolutePath = resolvePath(combinedPath);
+  return absolutePath;
+}
+
+export function compileModule(path: string, context: CompilerContext) {
+  const parentDir = context.moduleStack.length > 0 ? context.moduleStack[context.moduleStack.length - 1].path : "";
+  const absolutePath = getAbsolutePath(parentDir, path) + (path.endsWith(".lf") ? "" : ".lf");
+  if (context.modules.has(absolutePath)) return context.modules.get(absolutePath)!;
+  const source = context.getSource(absolutePath);
+  if (!source) throw new Error(`Couldn't find source with path '${absolutePath}'`);
+
+  const module = new Module(absolutePath);
+  context.moduleStack.push(module);
+  context.modules.set(absolutePath, module);
 
   module.ast = parse(source, context.errors);
 
@@ -47,8 +81,17 @@ export function compile(path: string, sourceLoader: SourceLoader) {
   }) as StatementNode[];
   const mainLocation = new SourceLocation(source, 0, source.text.length);
   const mainNode = new FunctionLiteralNode(new IdentifierToken(mainLocation, source.text), [], null, mainStatements, mainLocation);
-  module.functions.add(new NamedFunction("$main", new FunctionType([], NothingType), mainNode, false, false, mainLocation));
+  module.functions.add("$main", new NamedFunctionType("$main", new FunctionType([], NothingType), mainNode, false, false, mainLocation));
 
   checkTypes(new TypeCheckerContext(module, context));
-  return context;
+
+  // Gather all module level vars
+  module.ast.forEach((node) => {
+    if (node.kind == "variable declaration") {
+      module.variables.set(node.name.value, node);
+    }
+  });
+
+  context.moduleStack.pop();
+  return module;
 }

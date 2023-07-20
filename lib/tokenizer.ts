@@ -67,6 +67,7 @@ export const keywords = [
   "var",
   "const",
   "func",
+  "operator",
   "type",
   "if",
   "then",
@@ -87,7 +88,7 @@ export const keywords = [
 ];
 let keywordsLookup = new Set(keywords);
 // prettier-ignore
-export const operatorsList = [ "=", "!", "|", "&", "^", "==", "!=", ">", ">=", "<", "<=", "+", "-", "*", "/", "%", "(", ")", "[", "]", ".", "?", ":", ",", "{", "}", "is", "as", ";"].sort((a, b) => b.length - a.length);
+export const operatorsList = [ "=", "not", "or", "and", "xor", "==", "!=", ">", ">=", "<", "<=", "+", "-", "*", "/", "%", "(", ")", "[", "]", ".", "?", ":", "|", ",", "{", "}", "is", "as", ";"].sort((a, b) => b.length - a.length);
 const operatorStarts = new Set(operatorsList.map((operator) => operator.charAt(0)));
 const operators = new Set(operatorsList);
 
@@ -277,6 +278,8 @@ export function tokenize(source: Source, errors: LittleFootError[]) {
         tokens.push(new NothingToken(new SourceLocation(source, start, i), identifier, comments));
       } else if (keywordsLookup.has(identifier)) {
         tokens.push(new KeywordToken(new SourceLocation(source, start, i), identifier, comments));
+      } else if (operators.has(identifier)) {
+        tokens.push(new OperatorToken(new SourceLocation(source, start, i), identifier, comments));
       } else {
         tokens.push(new IdentifierToken(new SourceLocation(source, start, i), identifier, comments));
       }

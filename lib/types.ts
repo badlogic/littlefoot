@@ -136,7 +136,7 @@ export class NamedType extends BaseType {
   }
 }
 
-export class NamedFunction extends BaseType {
+export class NamedFunctionType extends BaseType {
   public readonly kind: "named function" = "named function";
 
   constructor(
@@ -155,12 +155,12 @@ export class NamedFunction extends BaseType {
     this.signature = this.name + this.type.signature;
   }
 
-  copy(): NamedFunction {
-    return new NamedFunction(this.name, this.type.copy(), this.ast, this.exported, this.external, this.location);
+  copy(): NamedFunctionType {
+    return new NamedFunctionType(this.name, this.type.copy(), this.ast, this.exported, this.external, this.location);
   }
 }
 
-export type Type = PrimitiveType | ListType | MapType | RecordType | FunctionType | UnionType | NamedType | NamedFunction;
+export type Type = PrimitiveType | ListType | MapType | RecordType | FunctionType | UnionType | NamedType | NamedFunctionType;
 
 export const NothingType = new PrimitiveType("nothing");
 export const BooleanType = new PrimitiveType("boolean");
@@ -212,7 +212,7 @@ export function traverseType(type: Type, callback: (type: Type) => boolean) {
 }
 
 export class Functions {
-  public readonly lookup = new Map<String, NamedFunction[]>();
+  public readonly lookup = new Map<string, NamedFunctionType[]>();
 
   has(name: string) {
     return this.lookup.has(name);
@@ -234,35 +234,31 @@ export class Functions {
 
   getExact(name: string, signature: string) {
     const funcs = this.lookup.get(name);
-    if (!funcs) return false;
+    if (!funcs) return undefined;
 
     for (const func of funcs) {
       if (func.signature == signature) return func;
     }
-    return false;
+    return undefined;
   }
 
-  add(func: NamedFunction) {
-    if (this.hasExact(func.name, func.signature)) {
-      const otherType = this.getExact(func.name, func.signature)! as NamedFunction;
-      const otherTypeLineIndex = otherType.location.source.indicesToLines(otherType.location.start, otherType.location.end)[0].index;
-      throw new LittleFootError(
-        func.location,
-        `Duplicate function '${func.name}', first defined in ${otherType.location.source.path}:${otherTypeLineIndex}.`
-      );
+  add(name: string, func: NamedFunctionType) {
+    if (this.hasExact(name, func.signature)) {
+      const otherType = this.getExact(name, func.signature)! as NamedFunctionType;
+      throw new LittleFootError(func.location, `Duplicate function '${name}', first defined in ${otherType.location.toString()}.`);
     }
 
-    let funcs = this.lookup.get(func.name);
+    let funcs = this.lookup.get(name);
     if (!funcs) {
       funcs = [];
-      this.lookup.set(func.name, funcs);
+      this.lookup.set(name, funcs);
     }
     funcs.push(func);
   }
 }
 
 export class Types {
-  public readonly lookup = new Map<String, PrimitiveType | NamedType>();
+  public readonly lookup = new Map<string, PrimitiveType | NamedType>();
 
   constructor() {
     this.add(NothingType);
@@ -289,11 +285,7 @@ export class Types {
         else throw new Error("Tried to add a built-in type twice");
       } else {
         if (type.kind != "primitive") {
-          const otherTypeLineIndex = otherType.location.source.indicesToLines(otherType.location.start, otherType.location.end)[0].index;
-          throw new LittleFootError(
-            type.location,
-            `Duplicate type '${type.name}', first defined in ${otherType.location.source.path}:${otherTypeLineIndex}.`
-          );
+          throw new LittleFootError(type.location, `Duplicate type '${type.name}', first defined in ${otherType.location.toString()}.`);
         } else {
           throw new Error("Tried to add a built-in type twice");
         }

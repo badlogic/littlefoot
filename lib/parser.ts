@@ -25,7 +25,7 @@ export function parse(source: Source, errors: LittleFootError[]) {
     while (stream.hasMore()) {
       const attributes = parseAttributes(stream);
 
-      if (stream.matchValue("func")) {
+      if (stream.matchValue("func") || stream.matchValue("operator")) {
         ast.push(parseFunction(stream, true, attributes));
       } else if (stream.matchValue("type")) {
         ast.push(parseType(stream, attributes));
@@ -216,8 +216,9 @@ function parseNameAndType(stream: TokenStream) {
 }
 
 function parseFunction(stream: TokenStream, hasName: boolean, attributes: Attribute[] = []) {
-  const firstToken = stream.expectValue("func");
-  const name = hasName ? stream.expectType(IdentifierToken) : null;
+  const firstToken = stream.matchValue("func") ? stream.expectValue("func") : stream.expectValue("operator");
+  const isOperator = firstToken.value == "operator";
+  const name = hasName ? (isOperator ? stream.expectType(OperatorToken) : stream.expectType(IdentifierToken)) : null;
 
   if (hasName == false && attributes.length > 0)
     throw new LittleFootError(firstToken.location, "Function literals can not have attributes like export or external.");

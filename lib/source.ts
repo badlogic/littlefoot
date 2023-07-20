@@ -28,6 +28,8 @@ export class Source {
   }
 
   indicesToLines(start: number, end: number) {
+    // FIXME use binary search to speed this up. We'll have to invoke this a lot when
+    // generating debugging info.
     const startLine = this.lines.findIndex((line) => start >= line.start && start < line.end);
     const endLine = this.lines.findIndex((line) => end >= line.start && end <= line.end);
     return this.lines.slice(startLine, endLine + 1);
@@ -43,6 +45,10 @@ export class SourceLocation {
 
   get lines() {
     return this.source.indicesToLines(this.start, this.end);
+  }
+
+  toString() {
+    return `${this.source.path}:${this.lines[0].index}`;
   }
 
   static from(loc1: SourceLocation, loc2: SourceLocation) {

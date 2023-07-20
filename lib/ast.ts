@@ -133,6 +133,7 @@ export class ImportedNameNode extends BaseAstNode {
 
 export class ImportNode extends BaseAstNode {
   public readonly kind: "import" = "import";
+
   constructor(firstToken: Token, public readonly importedNames: ImportedNameNode[], public readonly path: StringToken) {
     super(SourceLocation.from(firstToken.location, path.location));
   }
@@ -148,7 +149,8 @@ export class FunctionNode extends BaseAstNode {
     public readonly code: StatementNode[],
     public readonly exported: boolean,
     public readonly external: boolean,
-    lastLocation: SourceLocation
+    lastLocation: SourceLocation,
+    public isBeingChecked = false
   ) {
     super(SourceLocation.from(firstToken.location, lastLocation));
   }
@@ -162,7 +164,8 @@ export class VariableNode extends BaseAstNode {
     public typeNode: TypeSpecifierNode | null,
     public readonly initializer: ExpressionNode,
     public readonly exported: boolean,
-    public readonly constant: boolean
+    public readonly constant: boolean,
+    public moduleLevel = false
   ) {
     super(SourceLocation.from(firstToken.location, initializer.location));
   }
