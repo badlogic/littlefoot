@@ -10,25 +10,30 @@ describe("Typechecker tests", () => {
         {
           path: "source.lf",
           text: `
+          import "a/b"
           import "c/d"
-          var b = foo()
-          b.x = 3
+          var c = foo()
+          var t: x = x(12)
+          d.x = c.x
+          var z = x(10)
         `,
         },
         {
           path: "a/b.lf",
           text: `
           import "../c/d"
-          export var b = foo()
+          export const b = foo()
         `,
         },
         {
           path: "c/d.lf",
           text: `
           type x = <x: number>
+          type u = number | string
           export func foo()
             return x(123)
           end
+          export var d = foo()
         `,
         }
       )

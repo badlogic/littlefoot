@@ -29,7 +29,7 @@ export function parse(source: Source, errors: LittleFootError[]) {
         ast.push(parseFunction(stream, true, attributes));
       } else if (stream.matchValue("type")) {
         ast.push(parseType(stream, attributes));
-      } else if (stream.matchValue("var")) {
+      } else if (stream.matchValue("var") || stream.matchValue("const")) {
         ast.push(parseVariable(stream, attributes));
       } else {
         ast.push(parseStatement(stream));

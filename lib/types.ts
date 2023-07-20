@@ -127,6 +127,7 @@ export class UnionType extends BaseType {
 export class NamedType extends BaseType {
   public readonly kind: "named type" = "named type";
 
+  public constructorFunction: NamedFunctionType | null = null;
   constructor(public readonly name: string, public type: Type, public typeNode: TypeNode, public readonly location: SourceLocation) {
     super(name);
   }
@@ -245,6 +246,12 @@ export class Functions {
   add(name: string, func: NamedFunctionType) {
     if (this.hasExact(name, func.signature)) {
       const otherType = this.getExact(name, func.signature)! as NamedFunctionType;
+      // Adding the exact same function is allowed so
+      // module import handling is easier.
+      // FIXME testing by object identity is bad, test by location
+      if (func === otherType) {
+        return;
+      }
       throw new LittleFootError(func.location, `Duplicate function '${name}', first defined in ${otherType.location.toString()}.`);
     }
 
