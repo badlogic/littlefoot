@@ -1,5 +1,5 @@
 // prettier-ignore
-import {AstNode, DoNode, ForEachNode, ForNode, FunctionLiteralNode, FunctionNode, ImportNode, IsOperatorNode, ListLiteralNode, LoopVariable, MapLiteralNode, NameAndTypeNode, RecordLiteralNode, ReturnNode, TypeNode, TypeSpecifierNode, VariableAccessNode, VariableNode, WhileNode, traverseAst,} from "./ast";
+import {AstNode, DoNode, ForEachNode, ForNode, FunctionLiteralNode, FunctionNode, ImportNode, ImportedNameNode, IsOperatorNode, ListLiteralNode, LoopVariable, MapLiteralNode, NameAndTypeNode, RecordLiteralNode, ReturnNode, TypeNode, TypeSpecifierNode, VariableAccessNode, VariableNode, WhileNode, traverseAst,} from "./ast";
 import { CompilerContext, Module, compileModule } from "./compiler";
 import { LittleFootError } from "./error";
 import { SourceLocation } from "./source";
@@ -57,7 +57,7 @@ export class SymbolScopes {
       }
       if (allowShadow) break;
     }
-    scopes[scopes.length - 1].set(node.name.value, node);
+    scopes[scopes.length - 1].set(name, node);
   }
 }
 
@@ -106,16 +106,17 @@ export function checkTypes(context: TypeCheckerContext) {
   // types may refer to. Set their type to UnknownType.
   const namedTypeNodes: TypeNode[] = ast.filter((node) => node.kind == "type declaration") as TypeNode[];
   const namedTypes = new Array<NamedType>();
-  for (const type of namedTypeNodes) {
+  for (const typeNode of namedTypeNodes) {
     try {
-      type.type = new NamedType(type.name.value, UnknownType, type, type.location);
-      types.add(type.type as NamedType);
-      namedTypes.push(type.type as NamedType);
+      typeNode.type = new NamedType(typeNode.name.value, UnknownType, typeNode, typeNode.exported, typeNode.location);
+      const namedType = typeNode.type as NamedType;
+      types.add(namedType.name, namedType);
+      namedTypes.push(typeNode.type as NamedType);
     } catch (e) {
       if (e instanceof LittleFootError) errors.push(e);
       else
         errors.push(
-          new LittleFootError(new SourceLocation(type.location.source, 0, 1), "Internal error: " + (e as any).message + "\n" + (e as any).stack)
+          new LittleFootError(new SourceLocation(typeNode.location.source, 0, 1), "Internal error: " + (e as any).message + "\n" + (e as any).stack)
         );
       return;
     }
@@ -150,7 +151,7 @@ export function checkTypes(context: TypeCheckerContext) {
         funcType,
         new FunctionLiteralNode(typeNode.name, [], null, [], typeNode.name.location),
         true,
-        true,
+        typeNode.exported,
         typeNode.name.location
       );
       functions.add(type.name, type.constructorFunction);
@@ -363,14 +364,17 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
 
       if (node.importedNames.length == 0) {
         // Import all exported things defined in the module if no names are given.
-        // FIXME must also export transiently?
-        for (const name of module.variables.keys()) {
-          const variable = module.variables.get(name)!;
-          if (variable.location.source.path == module.path && variable.exported) {
-            context.module.variables.set(name, variable);
-            scopes.add(name, variable);
+        // We do not export anything transiently.
+        module.types.lookup.forEach((type, name) => {
+          if (type.kind == "named type") {
+            if (type.location.source.path == module.path && type.exported) {
+              context.module.types.add(name, type);
+              if (type.constructorFunction) {
+                context.module.functions.add(name, type.constructorFunction);
+              }
+            }
           }
-        }
+        });
         module.functions.lookup.forEach((funcs, name) => {
           for (const func of funcs) {
             if (func.location.source.path == module.path && func.exported) {
@@ -378,14 +382,61 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
             }
           }
         });
+        for (const name of module.variables.keys()) {
+          const variable = module.variables.get(name)!;
+          if (variable.location.source.path == module.path && variable.exported) {
+            context.module.variables.set(name, variable);
+            scopes.add(name, variable);
+          }
+        }
       } else {
-        // FIXME implement
         // Otherwise, import only named things and optionally alias them within
         // this module.
-        throw new Error("not implemented");
+        const seenNames = new Map<String, ImportedNameNode>();
+        for (const importedName of node.importedNames) {
+          checkNodeTypes(importedName, context);
+          if (seenNames.has(importedName.name.value)) {
+            throw new LittleFootError(
+              importedName.location,
+              `Duplicate import ${importedName.name.value}, already specified previously in this import statement.`
+            );
+          }
+
+          let found = false;
+          const alias = importedName.alias ? importedName.alias.value : importedName.name.value;
+          if (module.types.lookup.has(importedName.name.value)) {
+            found = true;
+            const type = module.types.lookup.get(importedName.name.value)!;
+            if (type.kind == "named type") {
+              if (type.location.source.path == module.path) {
+                context.module.types.add(alias, type);
+                if (type.constructorFunction) {
+                  context.module.functions.add(alias, type.constructorFunction);
+                }
+              }
+            }
+          }
+          if (module.functions.has(importedName.name.value)) {
+            found = true;
+            const funcs = module.functions.get(importedName.name.value)!;
+            for (const func of funcs) {
+              if (func.location.source.path == module.path && func.exported) {
+                context.module.functions.add(alias, func);
+              }
+            }
+          }
+          if (module.variables.has(importedName.name.value)) {
+            found = true;
+            const variable = module.variables.get(importedName.name.value)!;
+            context.module.variables.set(alias, variable);
+            scopes.add(alias, variable);
+          }
+        }
       }
       node.type = NothingType;
+      break;
     case "imported name": {
+      node.type = NothingType;
       break; // no-op, handled in "import" case above
     }
     case "function declaration": {

@@ -128,12 +128,18 @@ export class NamedType extends BaseType {
   public readonly kind: "named type" = "named type";
 
   public constructorFunction: NamedFunctionType | null = null;
-  constructor(public readonly name: string, public type: Type, public typeNode: TypeNode, public readonly location: SourceLocation) {
+  constructor(
+    public readonly name: string,
+    public type: Type,
+    public typeNode: TypeNode,
+    public readonly exported: boolean,
+    public readonly location: SourceLocation
+  ) {
     super(name);
   }
 
   copy(): NamedType {
-    return new NamedType(this.name, this.type.copy(), this.typeNode, this.location);
+    return new NamedType(this.name, this.type.copy(), this.typeNode, this.exported, this.location);
   }
 }
 
@@ -245,14 +251,14 @@ export class Functions {
 
   add(name: string, func: NamedFunctionType) {
     if (this.hasExact(name, func.signature)) {
-      const otherType = this.getExact(name, func.signature)! as NamedFunctionType;
+      const otherFunc = this.getExact(name, func.signature)! as NamedFunctionType;
       // Adding the exact same function is allowed so
       // module import handling is easier.
-      // FIXME testing by object identity is bad, test by location
-      if (func === otherType) {
+      // FIXME check via identity is bad, use location instead
+      if (func === otherFunc) {
         return;
       }
-      throw new LittleFootError(func.location, `Duplicate function '${name}', first defined in ${otherType.location.toString()}.`);
+      throw new LittleFootError(func.location, `Duplicate function '${name}', first defined in ${otherFunc.location.toString()}.`);
     }
 
     let funcs = this.lookup.get(name);
@@ -268,11 +274,11 @@ export class Types {
   public readonly lookup = new Map<string, PrimitiveType | NamedType>();
 
   constructor() {
-    this.add(NothingType);
-    this.add(BooleanType);
-    this.add(NumberType);
-    this.add(StringType);
-    this.add(UnknownType);
+    this.add(NothingType.name, NothingType);
+    this.add(BooleanType.name, BooleanType);
+    this.add(NumberType.name, NumberType);
+    this.add(StringType.name, StringType);
+    this.add(UnknownType.name, UnknownType);
   }
 
   get(name: string) {
@@ -283,22 +289,28 @@ export class Types {
     return this.lookup.has(name);
   }
 
-  add(type: PrimitiveType | NamedType) {
-    if (this.has(type.name)) {
-      const otherType = this.get(type.name)!;
+  add(name: string, type: PrimitiveType | NamedType) {
+    if (this.has(name)) {
+      const otherType = this.get(name)!;
       if (otherType.kind == "primitive") {
-        if (type.kind != "primitive")
-          throw new LittleFootError(type.location, `Can not use '${type.name}' as a type name, as a built-in type with that name exists.`);
-        else throw new Error("Tried to add a built-in type twice");
+        if (type.kind != "primitive") {
+          throw new LittleFootError(type.location, `Can not use '${name}' as a type name, as a built-in type with that name exists.`);
+        } else {
+          throw new Error("Tried to add a built-in type twice");
+        }
       } else {
         if (type.kind != "primitive") {
-          throw new LittleFootError(type.location, `Duplicate type '${type.name}', first defined in ${otherType.location.toString()}.`);
+          // FIXME check via identity is bad, use location instead
+          if (type === otherType) {
+            return;
+          }
+          throw new LittleFootError(type.location, `Duplicate type '${name}', first defined in ${otherType.location.toString()}.`);
         } else {
           throw new Error("Tried to add a built-in type twice");
         }
       }
     } else {
-      this.lookup.set(type.name, type);
+      this.lookup.set(name, type);
     }
   }
 }

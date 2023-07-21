@@ -11,10 +11,10 @@ describe("Typechecker tests", () => {
           path: "source.lf",
           text: `
           import "a/b"
-          import "c/d"
+          import x, foo, d as e from "c/d"
           var c = foo()
           var t: x = x(12)
-          d.x = c.x
+          e.x = c.x
           var z = x(10)
         `,
         },
