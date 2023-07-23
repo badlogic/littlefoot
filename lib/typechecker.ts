@@ -460,11 +460,14 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
         );
       }
 
-      // FIXME updating the return type of the
+      // Updating the return type of the
       // corresponding NamedFunctionType must be done after
-      // the named function has been fully resolved. However
-      // the code below uses object identity, which isn't
-      // great.
+      // the named function has been fully resolved. But we
+      // don't have a reference to the NamedFunctionType this
+      // function declaration belongs to. So we search for it
+      // by matching the identity of the AST in the NamedFunctionType
+      // with the function delcaration node.
+      // FIXME check via identity is bad, use location instead
       for (const func of funcs) {
         if (func.ast === node) {
           func.updateReturnType();
@@ -478,9 +481,10 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
         checkNodeTypes(node.typeNode, context);
         node.type = node.typeNode.type;
         if (!isAssignableTo(node.initializer, node.type)) {
-          throw new LittleFootError(
-            node.initializer.location,
-            `Can not assign a '${node.initializer.type.signature}' to a '${node.type.signature}'.`
+          // RECOVER: the type of the variable is given, so it doesn't matter that the
+          // initializer expression has an error.
+          context.compilerContext.errors.push(
+            new LittleFootError(node.initializer.location, `Can not assign a '${node.initializer.type.signature}' to a '${node.type.signature}'.`)
           );
         }
       } else {
@@ -1189,6 +1193,7 @@ function checkFunctionNode(node: FunctionLiteralNode | FunctionNode, context: Ty
   }
 }
 
+// FIXME ALL OF THE BELOW NEEDS TO INTRODUCE A BOXING AST NODE!
 /**
  * Inferres types for `from` if necessary based on `to`, then checks
  * if `from` is assignable to `to`.
@@ -1196,17 +1201,20 @@ function checkFunctionNode(node: FunctionLiteralNode | FunctionNode, context: Ty
  * Type inference for `from` is necessary if `from` has empty list or map
  * literals, so the runtime can instantiate the correct types for the empty
  * lists and map literals. The types of these literals are inferred from `to`.
+ *
+ * If `to` includes unions, and `from` is a literal, then corresponding parts of
+ * `from`'s type must be expanded to unions.
  */
 function isAssignableTo(from: AstNode, to: Type): boolean {
-  assignTypesToEmptyListAndMapLiterals(from, to);
-  // expandLiteralValueTypesToUnions(from, to);
+  inferTypesOfEmptyListAndMapLiterals(from, to);
+  expandLiteralValueTypesToUnions(from, to);
   if (!typeIsAssignableTo(from.type, to)) return false;
   return true;
 }
 
 // Finds empty lists and maps in literals and infers their type based on to
 // `to` type.
-function assignTypesToEmptyListAndMapLiterals(from: AstNode, to: Type): boolean {
+function inferTypesOfEmptyListAndMapLiterals(from: AstNode, to: Type): boolean {
   const originalTo = to;
   to = to.kind == "named type" || to.kind == "named function" ? to.type : to;
   if (hasEmptyListOrMap(from.type)) {
@@ -1227,7 +1235,7 @@ function assignTypesToEmptyListAndMapLiterals(from: AstNode, to: Type): boolean 
           // unknown type. Recursively check and resolve the unknown types
           // of empty list or map literal values.
           for (const element of from.elements) {
-            if (!assignTypesToEmptyListAndMapLiterals(element, to.elementType)) return false;
+            if (!inferTypesOfEmptyListAndMapLiterals(element, to.elementType)) return false;
           }
           from.type.setElementType(nodeListToType(from.elements));
           return true;
@@ -1240,7 +1248,7 @@ function assignTypesToEmptyListAndMapLiterals(from: AstNode, to: Type): boolean 
           throw new LittleFootError(from.location, `Can not infer type for empty list literal from target type ${originalTo.signature}`);
         } else if (listTypes.length == 1) {
           // If the union contains 1 list type, try to assign that as the empty list type
-          return assignTypesToEmptyListAndMapLiterals(from, listTypes[0]);
+          return inferTypesOfEmptyListAndMapLiterals(from, listTypes[0]);
         } else {
           // If there are > 1 list types, the type is undecideable
           throw new LittleFootError(
@@ -1266,7 +1274,7 @@ function assignTypesToEmptyListAndMapLiterals(from: AstNode, to: Type): boolean 
           // unknown type. Recursively check and resolve the unknown types
           // of the values.
           for (const value of from.values) {
-            if (!assignTypesToEmptyListAndMapLiterals(value, to.valueType)) return false;
+            if (!inferTypesOfEmptyListAndMapLiterals(value, to.valueType)) return false;
           }
 
           // Update the map literal's type.
@@ -1281,7 +1289,7 @@ function assignTypesToEmptyListAndMapLiterals(from: AstNode, to: Type): boolean 
           throw new LittleFootError(from.location, `Can not infer type for empty map literal from target type ${originalTo.signature}`);
         } else if (mapTypes.length == 1) {
           // If the union contains 1 list type, try to assign that as the empty list type
-          return assignTypesToEmptyListAndMapLiterals(from, mapTypes[0]);
+          return inferTypesOfEmptyListAndMapLiterals(from, mapTypes[0]);
         } else {
           // If there are > 1 list types, the type is undecideable
           throw new LittleFootError(
@@ -1308,7 +1316,7 @@ function assignTypesToEmptyListAndMapLiterals(from: AstNode, to: Type): boolean 
         let found = false;
         for (const toField of to.fields) {
           if (fieldName.value !== toField.name) continue;
-          if (assignTypesToEmptyListAndMapLiterals(fieldValue, toField.type)) {
+          if (inferTypesOfEmptyListAndMapLiterals(fieldValue, toField.type)) {
             found = true;
             break;
           }
@@ -1328,6 +1336,132 @@ function assignTypesToEmptyListAndMapLiterals(from: AstNode, to: Type): boolean 
     }
   } else {
     return true;
+  }
+}
+
+/**
+ * Expands list, map, and record literal types to unions if the
+ * to type is a union.
+ */
+function expandLiteralValueTypesToUnions(from: AstNode, to: Type) {
+  if (hasUnion(to)) {
+    // If from is a list literal and to is a list type expand
+    // from's element type to a union if necessary.
+    if (from.kind == "list literal" && from.type.kind == "list") {
+      if (to.kind == "list") {
+        if (to.elementType.kind == "union") {
+          // If to's element type is a union, unify from's element type
+          // with the union.
+          from.type.setElementType(unify(from.type.elementType, to.elementType));
+        } else if (to.elementType.kind == "list") {
+          // Otherwise, if to's element type is a list, expand from's
+          // value types recursively.
+          if (!isEqual(from.type.elementType, to.elementType)) {
+            for (const element of from.elements) {
+              expandLiteralValueTypesToUnions(element, to.elementType);
+            }
+            from.type.setElementType(nodeListToType(from.elements));
+          }
+        }
+      } else if (to.kind == "union") {
+        // If to is a union, check if any of the union types are
+        // compatible list types. If so, assign to's union type
+        // to the from's type.
+        let found = false;
+        for (const unionType of to.types) {
+          if (typeIsAssignableTo(from.type, unionType)) {
+            found = true;
+            break;
+          }
+        }
+        if (found) {
+          from.type = to;
+        }
+      }
+    }
+
+    // If from is a map literal and to is a map type expand
+    // from's value type to a union if necessary.
+    if (from.kind == "map literal" && from.type.kind == "map") {
+      if (to.kind == "map") {
+        if (to.valueType.kind == "union") {
+          // If to's value type is a union, unify from's value type
+          // with the union.
+          from.type.setValueType(unify(from.type.valueType, to.valueType));
+        } else {
+          // Otherwise, if to's value type is a list, expand from's
+          // value types recursively.
+          if (!isEqual(from.type.valueType, to.valueType)) {
+            for (const element of from.values) {
+              expandLiteralValueTypesToUnions(element, to.valueType);
+            }
+            from.type.setValueType(nodeListToType(from.values));
+          }
+        }
+      } else if (to.kind == "union") {
+        // If to is a union, check if any of the union types are
+        // compatible list types. If so, assign to's union type
+        // to the from's type.
+        let found = false;
+        for (const unionType of to.types) {
+          if (typeIsAssignableTo(from.type, unionType)) {
+            found = true;
+            break;
+          }
+        }
+        if (found) {
+          from.type = to;
+        }
+      }
+    }
+
+    // If from is a record literal and to is a record type expand
+    // from's field types to a union if necessary.
+    if (from.kind == "record literal" && from.type.kind == "record") {
+      if (to.kind == "record") {
+        // If from has less fields than to, the two record types
+        // can't be compatible so don't do anything.
+        if (from.fieldValues.length < to.fields.length) return;
+
+        for (let i = 0; i < from.fieldValues.length; i++) {
+          const fieldName = from.fieldNames[i];
+          const fieldValue = from.fieldValues[i];
+          let found = false;
+          for (const toField of to.fields) {
+            if (fieldName.value !== toField.name) continue;
+            expandLiteralValueTypesToUnions(fieldValue, toField.type);
+            found = true;
+            break;
+          }
+          if (!found) return;
+        }
+        for (let i = 0; i < from.fieldValues.length; i++) {
+          from.type.fields[i].type = from.fieldValues[i].type;
+        }
+        from.type.updateSignature();
+      } else if (to.kind == "union") {
+        // Otherwise, if to is a union, check if there's a record type
+        // in the union that matches, and if so, set from's type
+        // to be to's union type.
+        let found = false;
+        for (const unionType of to.types) {
+          if (typeIsAssignableTo(from.type, unionType)) {
+            found = true;
+            break;
+          }
+        }
+        if (found) {
+          from.type = to;
+        }
+      }
+    }
+
+    if (to.kind == "union") {
+      // Otherwise, if from is a built-in type and to is union
+      // set from's type to the unified union of its type and to's
+      // union type.
+      from.type = unify(from.type, to);
+    }
   }
 }
 

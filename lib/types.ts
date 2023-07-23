@@ -180,38 +180,41 @@ function assertNever(x: never) {
   throw new Error("Unexpected object: " + x);
 }
 
-export function traverseType(type: Type, callback: (type: Type) => boolean) {
+export function traverseType(type: Type, callback: (type: Type) => boolean, namedTypesStack = new Set<Type>()) {
   if (!callback(type)) return;
   switch (type.kind) {
     case "function":
       for (const parameter of type.parameters) {
-        traverseType(parameter.type, callback);
+        traverseType(parameter.type, callback, namedTypesStack);
       }
-      traverseType(type.returnType, callback);
+      traverseType(type.returnType, callback, namedTypesStack);
       break;
     case "primitive":
       break;
     case "list":
-      traverseType(type.elementType, callback);
+      traverseType(type.elementType, callback, namedTypesStack);
       break;
     case "map":
-      traverseType(type.valueType, callback);
+      traverseType(type.valueType, callback, namedTypesStack);
       break;
     case "record":
       for (const field of type.fields) {
-        traverseType(field.type, callback);
+        traverseType(field.type, callback, namedTypesStack);
       }
       break;
     case "union":
       for (const unionType of type.types) {
-        traverseType(unionType, callback);
+        traverseType(unionType, callback, namedTypesStack);
       }
       break;
     case "named type":
-      traverseType(type.type, callback);
+      if (namedTypesStack.has(type)) break;
+      namedTypesStack.add(type);
+      traverseType(type.type, callback, namedTypesStack);
+      namedTypesStack.delete(type);
       break;
     case "named function":
-      traverseType(type.type, callback);
+      traverseType(type.type, callback, namedTypesStack);
       break;
     default:
       assertNever(type);
@@ -316,6 +319,15 @@ export class Types {
 }
 
 export function isEqual(from: Type, to: Type) {
+  // If both types are named types, then they are only
+  // equal if they are the same type by identity.
+  // FIXME check by identity is bad, use location instead
+  // This is needed to stop the recursion for types like
+  // type node = <children: [node], value: number>
+  if (from.kind == "named type" && to.kind == "named type") {
+    return from === to;
+  }
+
   // Unpack the type of named types.
   if (from.kind == "named function" || from.kind == "named type") {
     from = from.type;
@@ -324,18 +336,23 @@ export function isEqual(from: Type, to: Type) {
     to = to.type;
   }
 
+  // Primitive types must match by name exactly.
   if (from.kind == "primitive" && to.kind == "primitive") {
-    // Primitive types must match by name exactly.
     return from.name == to.name;
-  } else if (from.kind == "list" && to.kind == "list") {
-    // List types must have equal element types.
+  }
+
+  // List types must have equal element types.
+  if (from.kind == "list" && to.kind == "list") {
     return isEqual(from.elementType, to.elementType);
-  } else if (from.kind == "map" && to.kind == "map") {
-    // Map types must have equal value types.
+  }
+  // Map types must have equal value types.
+  if (from.kind == "map" && to.kind == "map") {
     return isEqual(from.valueType, to.valueType);
-  } else if (from.kind == "record" && to.kind == "record") {
-    // Records must have the same number of fields. Each
-    // pair of fields must match in both name and type.
+  }
+
+  // Records must have the same number of fields. Each
+  // pair of fields must match in both name and type.
+  if (from.kind == "record" && to.kind == "record") {
     if (from.fields.length != to.fields.length) return false;
     for (let i = 0; i < from.fields.length; i++) {
       const fromField = from.fields[i];
@@ -348,20 +365,22 @@ export function isEqual(from: Type, to: Type) {
       if (!found) return false;
     }
     return true;
-  } else if (from.kind == "union" && to.kind == "union") {
-    // Unions must have the same number of types. Each type
-    // of a must be found in b.
-    //
-    // FIXME the current implementation assumes that all types
-    // within a union are distinct. However, the following
-    // degenerate case can arise (e.g. when mixins are involved):
-    //
-    // type a = someType | someType | someType
-    // type b = someType | anotherType | anotherType
-    //
-    // These two types are not equal, even though all types
-    // of a can be found in b. The current implementation will
-    // report these two types as equal.
+  }
+
+  // Unions must have the same number of types. Each type
+  // of a must be found in b.
+  //
+  // FIXME the current implementation assumes that all types
+  // within a union are distinct. However, the following
+  // degenerate case can arise (e.g. when mixins are involved):
+  //
+  // type a = someType | someType | someType
+  // type b = someType | anotherType | anotherType
+  //
+  // These two types are not equal, even though all types
+  // of a can be found in b. The current implementation will
+  // report these two types as equal.
+  if (from.kind == "union" && to.kind == "union") {
     if (from.types.length != to.types.length) return false;
     for (let i = 0; i < from.types.length; i++) {
       const aType = from.types[i];
@@ -376,20 +395,23 @@ export function isEqual(from: Type, to: Type) {
       if (!found) return false;
     }
     return true;
-  } else if (from.kind == "function" && to.kind == "function") {
-    // Functions must have the same number of parameters. Each
-    // parameter pair must have equal types. The return types
-    // must also be equal. The parameter names
-    // are irrelevant for equality.
+  }
+
+  // Functions must have the same number of parameters. Each
+  // parameter pair must have equal types. The return types
+  // must also be equal. The parameter names
+  // are irrelevant for equality.
+  if (from.kind == "function" && to.kind == "function") {
     if (from.parameters.length != to.parameters.length) return false;
     for (let i = 0; i < from.parameters.length; i++) {
       if (!isEqual(from.parameters[i].type, to.parameters[i].type)) return false;
     }
     if (!isEqual(from.returnType, to.returnType)) return false;
     return true;
-  } else {
-    return false;
   }
+
+  // Otherwise, the types are not equal
+  return false;
 }
 
 // If from is a List and map with element/valueType equal to UnknownType,
@@ -398,6 +420,16 @@ export function isEqual(from: Type, to: Type) {
 // list and map literals to be assigned to variables, fields,
 // function arguments and so on.
 export function isAssignableTo(from: Type, to: Type): boolean {
+  // If both types are named types, then they are only
+  // equal if they are the same type by identity.
+  // FIXME check by identity is bad, use location instead
+  // This is needed to stop the recursion for types like
+  // type node = <children: [node], value: number>
+  if (from.kind == "named type" && to.kind == "named type") {
+    return from === to;
+  }
+
+  // Unpack the type of named types
   if (from.kind == "named function" || from.kind == "named type") {
     from = from.type;
   }
@@ -410,21 +442,19 @@ export function isAssignableTo(from: Type, to: Type): boolean {
   // Non-exact matches are handled below.
   if (isEqual(from, to)) return true;
 
+  // If `from` is a union and `to` is not, then `from``
+  // can not be assigned
   if (from.kind == "union" && to.kind != "union") {
-    // If `to` is not a union, then all types in `from` must be assignable to `to`.
-    for (const type of from.types) {
-      if (!isAssignableTo(type, to)) return true;
-    }
-    return true;
-  } else if (to.kind == "union") {
-    // If `from` is a union and `to` is not, it can not be assigned.
-    // This is why we start by checking if `to` is a union.
-    //
-    // There are two cases:
-    // 1. If `from` is not a union, then it must be assignable
-    //    to at least one type in the `to` union.
-    // 2. If `from` is a union, then all of `from`'s types must be
-    //    assignable to at least one type in `to`.
+    return false;
+  }
+
+  // If `to` is a union, there are two cases:
+  // 1. If `from` is not a union, then it must be assignable
+  //    to at least one type in the `to` union. From must be boxed
+  //    in this case!
+  // 2. If `from` is a union, then all of `from`'s types must be
+  //    assignable to at least one type in `to`.
+  if (to.kind == "union") {
     if (from.kind != "union") {
       for (const type of to.types) {
         if (isAssignableTo(from, type)) return true;
@@ -443,27 +473,53 @@ export function isAssignableTo(from: Type, to: Type): boolean {
       }
       return true;
     }
-  } else if (from.kind == "list" && to.kind == "list") {
-    // For lists, the element types must be assignable
-    // for records, and equal for everything else.
+  }
+
+  // For lists, if the to element type is a union
+  // the from type must be a union as well, so we honor memory layouts.
+  // E.g. [number] can not be assigned to [number | string].
+  // The from element type must be assignable to the to element type
+  if (from.kind == "list" && to.kind == "list") {
+    if (to.elementType.kind == "union" && from.elementType.kind != "union") {
+      return false;
+    }
     return isAssignableTo(from.elementType, to.elementType);
-  } else if (from.kind == "map" && to.kind == "map") {
-    // For maps, the element types must be assignable
-    // for records, and equal for everything else.
+  }
+
+  // For maps, if the to value type is a union then
+  // the from value type must be a union as well, so we honor memory layouts.
+  // E.g. {"a": number} can not be assigned to {"a": number | string}.
+  // The from element type must be assignable to the to element type
+  if (from.kind == "map" && to.kind == "map") {
+    if (to.valueType.kind == "union" && from.valueType.kind != "union") {
+      return false;
+    }
     return isAssignableTo(from.valueType, to.valueType);
-  } else if (from.kind == "record" && to.kind == "record") {
-    // We only get here if isEqual(from, to) was false, which means
-    // the two record types don't have the same number or exact
-    // types of fields.
-    //
-    // However, if we can assign all fields of from to a subset of fields
-    // of record to, we can assign from to to.
+  }
+
+  // We only get here if isEqual(from, to) was false, which means
+  // the two record types don't have the same number or exact
+  // types of fields.
+  //
+  // However, if we can assign all fields of from to a subset of fields
+  // of record to, we can assign from to to.
+  //
+  // If the from and to field match by name, but to is a union and from is not
+  // then from is not assignable to to, to honor memory layouts. E.g.
+  // <x: number> can not be assigned to <x: number | string>.
+  if (from.kind == "record" && to.kind == "record") {
     if (from.fields.length < to.fields.length) return false;
     let matchedFields = 0;
     for (const fromField of from.fields) {
       let found = false;
       for (const toField of to.fields) {
         if (fromField.name !== toField.name) continue;
+
+        // If the to field is a union and the from field is not, the
+        // from is not assignable to. This is required to honor memory layouts.
+        if (toField.type.kind == "union" && fromField.type.kind != "union") continue;
+
+        // Otherwise, from needs to be assignable to to.
         if (isAssignableTo(fromField.type, toField.type)) {
           matchedFields++;
           if (matchedFields == to.fields.length) return true;
@@ -474,18 +530,21 @@ export function isAssignableTo(from: Type, to: Type): boolean {
       if (!found) return false;
     }
     return true;
-  } else if (from.kind == "function" && to.kind == "function") {
-    // For functions, the number of parameters must match,
-    // and the parameter types of `from` must be assignable to
-    // the parameter types of `. The return type of a must
-    // also be assignable to b. The parameter names do not matter.
+  }
+
+  // For functions, the number of parameters must match,
+  // and the parameter types of `from` must be equal to
+  // the parameter types of `. The return type of a must
+  // also be assignable to b. The parameter names do not matter.
+  if (from.kind == "function" && to.kind == "function") {
     if (from.parameters.length != to.parameters.length) return false;
     for (let i = 0; i < from.parameters.length; i++) {
-      if (!isAssignableTo(from.parameters[i].type, to.parameters[i].type)) return false;
+      if (!isEqual(from.parameters[i].type, to.parameters[i].type)) return false;
     }
-    if (!isAssignableTo(from.returnType, to.returnType)) return false;
+    if (!isEqual(from.returnType, to.returnType)) return false;
     return true;
-  } else {
-    return false;
   }
+
+  // Otherwise, the from is not assignable to to
+  return false;
 }
