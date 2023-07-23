@@ -230,6 +230,20 @@ describe("Typechecker tests", () => {
       var rt = nn()
       var nn: number | string = rt
       nn = 0
+
+      type node = <children: [node], value: number | string | nothing>
+      var tree1: node = <children: [], value: 0>
+      var tree2: node = <children: [
+        <children: [], value: nothing>,
+        <children: [], value: nothing>,
+        <children: [], value: 123>
+      ], value: 1>
+
+      var tree: node = node([
+        node([
+          node([], nothing)
+        ], "test")
+      ], 1)
     `);
     expect(errors.length).toBe(0);
   });
