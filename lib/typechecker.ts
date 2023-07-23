@@ -554,9 +554,7 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
       }
 
       scopes.push();
-      for (const statement of node.trueBlock) {
-        checkNodeTypes(statement, context);
-      }
+      checkBlock(node.trueBlock, context);
       scopes.pop();
 
       // Reset the variable types narrowed down in "is" operators
@@ -566,15 +564,11 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
       }
 
       scopes.push();
-      for (const elseIf of node.elseIfs) {
-        checkNodeTypes(elseIf, context);
-      }
+      checkBlock(node.elseIfs, context);
       scopes.pop();
 
       scopes.push();
-      for (const statement of node.falseBlock) {
-        checkNodeTypes(statement, context);
-      }
+      checkBlock(node.falseBlock, context);
       scopes.pop();
 
       node.type = NothingType;
@@ -588,9 +582,7 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
 
       context.pushLoop(node);
       scopes.push();
-      for (const statement of node.block) {
-        checkNodeTypes(statement, context);
-      }
+      checkBlock(node.block, context);
       scopes.pop();
       context.popLoop();
 
@@ -609,9 +601,7 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
       context.pushLoop(node);
       scopes.push();
       scopes.add(node.loopVariable.name.value, node.loopVariable);
-      for (const statement of node.block) {
-        checkNodeTypes(statement, context);
-      }
+      checkBlock(node.block, context);
       scopes.pop();
 
       node.type = NothingType;
@@ -634,9 +624,7 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
       context.pushLoop(node);
       scopes.push();
       scopes.add(node.loopVariable.name.value, node.loopVariable);
-      for (const statement of node.block) {
-        checkNodeTypes(statement, context);
-      }
+      checkBlock(node.block, context);
       scopes.pop();
       context.popLoop();
 
@@ -650,9 +638,7 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
 
       context.pushLoop(node);
       scopes.push();
-      for (const statement of node.block) {
-        checkNodeTypes(statement, context);
-      }
+      checkBlock(node.block, context);
       scopes.pop();
       context.popLoop();
 
@@ -1125,9 +1111,7 @@ function checkFunctionNode(node: FunctionLiteralNode | FunctionNode, context: Ty
   if (node.returnType) checkNodeTypes(node.returnType, context);
 
   if (checkCode) {
-    for (const statement of node.code) {
-      checkNodeTypes(statement, context);
-    }
+    checkBlock(node.code, context);
   }
   context.scopes.pop();
 
@@ -1190,6 +1174,12 @@ function checkFunctionNode(node: FunctionLiteralNode | FunctionNode, context: Ty
       node.returnType ? node.returnType.type : UnknownType
     );
     return node.type;
+  }
+}
+
+function checkBlock(block: StatementNode[], context: TypeCheckerContext) {
+  for (const statement of block) {
+    checkNodeTypes(statement, context);
   }
 }
 
@@ -1378,6 +1368,7 @@ function expandLiteralValueTypesToUnions(from: AstNode, to: Type) {
           from.type = to;
         }
       }
+      return;
     }
 
     // If from is a map literal and to is a map type expand
@@ -1413,6 +1404,7 @@ function expandLiteralValueTypesToUnions(from: AstNode, to: Type) {
           from.type = to;
         }
       }
+      return;
     }
 
     // If from is a record literal and to is a record type expand
@@ -1454,12 +1446,14 @@ function expandLiteralValueTypesToUnions(from: AstNode, to: Type) {
           from.type = to;
         }
       }
+      return;
     }
 
     if (to.kind == "union") {
       // Otherwise, if from is a built-in type and to is union
       // set from's type to the unified union of its type and to's
       // union type.
+      // FIXME this is wonky
       from.type = unify(from.type, to);
     }
   }

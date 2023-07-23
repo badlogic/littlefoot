@@ -27,13 +27,20 @@ export function parse(source: Source, errors: LittleFootError[]) {
 
       if (stream.matchValue("func") || stream.matchValue("operator")) {
         ast.push(parseFunction(stream, true, attributes));
-      } else if (stream.matchValue("type")) {
-        ast.push(parseType(stream, attributes));
-      } else if (stream.matchValue("var") || stream.matchValue("const")) {
-        ast.push(parseVariable(stream, attributes));
-      } else {
-        ast.push(parseStatement(stream));
+        continue;
       }
+
+      if (stream.matchValue("type")) {
+        ast.push(parseType(stream, attributes));
+        continue;
+      }
+
+      if (stream.matchValue("var") || stream.matchValue("const")) {
+        ast.push(parseVariable(stream, attributes));
+        continue;
+      }
+
+      ast.push(parseStatement(stream));
     }
   } catch (e) {
     if (e instanceof LittleFootError) errors.push(e);
@@ -87,24 +94,38 @@ function parseImport(stream: TokenStream): ImportNode {
 function parseStatement(stream: TokenStream): StatementNode {
   if (stream.matchValue("var") || stream.matchValue("const")) {
     return parseVariable(stream);
-  } else if (stream.matchValue("if")) {
+  }
+
+  if (stream.matchValue("if")) {
     return parseIf(stream);
-  } else if (stream.matchValue("while")) {
+  }
+
+  if (stream.matchValue("while")) {
     return parseWhile(stream);
-  } else if (stream.matchValue("do")) {
+  }
+
+  if (stream.matchValue("do")) {
     return parseDo(stream);
-  } else if (stream.matchValue("for")) {
+  }
+
+  if (stream.matchValue("for")) {
     return parseFor(stream);
-  } else if (stream.matchValue("continue")) {
+  }
+
+  if (stream.matchValue("continue")) {
     return new ContinueNode(stream.expectValue("continue"));
-  } else if (stream.matchValue("break")) {
+  }
+
+  if (stream.matchValue("break")) {
     return new BreakNode(stream.expectValue("break"));
-  } else if (stream.matchValue("return")) {
+  }
+
+  if (stream.matchValue("return")) {
     const firstToken = stream.expectValue("return");
     return new ReturnNode(firstToken, stream.matchValue(";", true) ? null : parseExpression(stream));
-  } else {
-    return parseExpression(stream);
   }
+
+  return parseExpression(stream);
 }
 
 function parseVariable(stream: TokenStream, attributes: Attribute[] = []) {
