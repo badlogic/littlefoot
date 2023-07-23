@@ -840,7 +840,7 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
       if (!isAssignableTo(node.leftExpression, node.typeNode.type)) {
         throw new LittleFootError(
           node.leftExpression.location,
-          `Can not widen a '${node.leftExpression.type.signature}' to a '${node.typeNode.type.signature}'`
+          `Can not interpret a '${node.leftExpression.type.signature}' as a '${node.typeNode.type.signature}'`
         );
       }
       node.type = node.typeNode.type;
@@ -1179,11 +1179,21 @@ function checkFunctionNode(node: FunctionLiteralNode | FunctionNode, context: Ty
 
 function checkBlock(block: StatementNode[], context: TypeCheckerContext) {
   for (const statement of block) {
+    // FIXME implement recovery for statements with errors we can recover from
+    // try {
     checkNodeTypes(statement, context);
+    /*} catch (e) {
+      if (e instanceof LittleFootError) {
+        context.compilerContext.errors.push(e);
+      } else {
+        context.compilerContext.errors.push(
+          new LittleFootError(new SourceLocation(statement.location.source, 0, 1), "Internal error: " + (e as any).message + "\n" + (e as any).stack)
+        );
+      }
+    }*/
   }
 }
 
-// FIXME ALL OF THE BELOW NEEDS TO INTRODUCE A BOXING AST NODE!
 /**
  * Inferres types for `from` if necessary based on `to`, then checks
  * if `from` is assignable to `to`.
@@ -1202,24 +1212,22 @@ function isAssignableTo(from: AstNode, to: Type): boolean {
   return true;
 }
 
-// Finds empty lists and maps in literals and infers their type based on to
+// Finds empty lists and maps in literals and infers their type based on the
 // `to` type.
 function inferTypesOfEmptyListAndMapLiterals(from: AstNode, to: Type): boolean {
   const originalTo = to;
   to = to.kind == "named type" || to.kind == "named function" ? to.type : to;
-  if (hasEmptyListOrMap(from.type)) {
-    // The from type has an empty list or map literal in it. We need to infer
-    // its type if possible. The from type must be a (nested) list, map, or record at
-    // this point, and to must have a corresponding type.
 
+  // The from type has an empty list or map literal in it. We need to infer
+  // its type if possible. The from type must be a (nested) list, map, or record at
+  // this point, and to must have a corresponding type.
+  if (hasEmptyListOrMap(from.type)) {
     if (from.kind == "list literal" && from.type.kind == "list") {
+      // If the from list literal is not nested and empty, it has type
+      // UnknownType. Assign the to type.
       if (to.kind == "list") {
-        // If the from list literal is not nested and empty, it has type
-        // UnknownType. Assign the to type.
         if (from.type.elementType.signature == UnknownType.signature) {
-          // Using signature because scoreFunction copies types.
           from.type = originalTo;
-          return true;
         } else {
           // Otherwise, the from list literal has a nested value with an
           // unknown type. Recursively check and resolve the unknown types
@@ -1228,10 +1236,12 @@ function inferTypesOfEmptyListAndMapLiterals(from: AstNode, to: Type): boolean {
             if (!inferTypesOfEmptyListAndMapLiterals(element, to.elementType)) return false;
           }
           from.type.setElementType(nodeListToType(from.elements));
-          return true;
         }
-      } else if (to.kind == "union") {
-        // `to` can also be a union.
+        return true;
+      }
+
+      // `to` can also be a union.
+      if (to.kind == "union") {
         const listTypes = to.types.filter((type) => type.kind == "list");
         if (listTypes.length == 0) {
           // If there's no list type in the union, the empty list type can not be inferred.
@@ -1248,17 +1258,15 @@ function inferTypesOfEmptyListAndMapLiterals(from: AstNode, to: Type): boolean {
               .join("\n")}`
           );
         }
-      } else {
-        return true;
       }
+
+      return true;
     } else if (from.kind == "map literal" && from.type.kind == "map") {
       if (to.kind == "map") {
         // If the from list literal is not nested and empty, it has type
         // UnknownType. Assign the to type.
         if (from.type.kind == "map" && from.type.valueType.signature == UnknownType.signature) {
-          // Using signature because scoreFunction copies types.
           from.type = originalTo;
-          return true;
         } else {
           // Otherwise, the from map literal has a nested value with an
           // unknown type. Recursively check and resolve the unknown types
@@ -1269,9 +1277,11 @@ function inferTypesOfEmptyListAndMapLiterals(from: AstNode, to: Type): boolean {
 
           // Update the map literal's type.
           from.type.setValueType(nodeListToType(from.values));
-          return true;
         }
-      } else if (to.kind == "union") {
+        return true;
+      }
+
+      if (to.kind == "union") {
         // `to` can also be a union.
         const mapTypes = to.types.filter((type) => type.kind == "map");
         if (mapTypes.length == 0) {
@@ -1289,10 +1299,11 @@ function inferTypesOfEmptyListAndMapLiterals(from: AstNode, to: Type): boolean {
               .join("\n")}`
           );
         }
-      } else {
-        return true;
       }
-    } else if (from.kind == "record literal" && to.kind == "record") {
+      return true;
+    }
+
+    if (from.kind == "record literal" && to.kind == "record") {
       // If the from record has less fields than the to record
       // we can stop infering types. The from record can not be
       // assigned to the to record.
@@ -1324,137 +1335,228 @@ function inferTypesOfEmptyListAndMapLiterals(from: AstNode, to: Type): boolean {
     } else {
       return false;
     }
-  } else {
-    return true;
   }
+
+  return true;
 }
 
 /**
  * Expands list, map, and record literal types to unions if the
- * to type is a union.
+ * to type is a union. Needed to ensure the memory layouts of
+ * all involved types match.
  */
 function expandLiteralValueTypesToUnions(from: AstNode, to: Type) {
   if (hasUnion(to)) {
+    // If from is a primitive type, "box" it.
+    if (typeIsAssignableTo(from.type, to) && to.kind == "union" && from.type.kind == "primitive") {
+      from.type = to;
+      return;
+    }
+
     // If from is a list literal and to is a list type expand
     // from's element type to a union if necessary.
-    if (from.kind == "list literal" && from.type.kind == "list") {
-      if (to.kind == "list") {
-        if (to.elementType.kind == "union") {
-          // If to's element type is a union, unify from's element type
-          // with the union.
-          from.type.setElementType(unify(from.type.elementType, to.elementType));
-        } else if (to.elementType.kind == "list") {
-          // Otherwise, if to's element type is a list, expand from's
-          // value types recursively.
-          if (!isEqual(from.type.elementType, to.elementType)) {
-            for (const element of from.elements) {
-              expandLiteralValueTypesToUnions(element, to.elementType);
+    if (from.kind == "list literal" && from.type.kind == "list" && to.kind == "list") {
+      // If to's element type is a union, unify from's element type
+      // with the union.
+      if (to.elementType.kind == "union") {
+        if (typeIsAssignableTo(from.type.elementType, to.elementType)) {
+          from.type.setElementType(to.elementType);
+        } else {
+          // For each element in the literal, find the best
+          // candidate type in the union, then expand to it.
+          // Once all candidates have been identified, unify
+          // them into a single union and assign that
+          // as the element type of from.
+          for (let i = 0; i < from.elements.length; i++) {
+            const element = from.elements[i];
+            const oldType = element.type.copy();
+            let candidates: Type[] = [];
+            for (const unionType of to.elementType.types) {
+              // If we have a perfect type match, select it
+              if (isEqual(element.type, unionType)) {
+                candidates = [unionType];
+                break;
+              }
+              // Otherwise, check if from is assignable to to and if so
+              // add it to the list of candidates.
+              if (isAssignableTo(element, unionType)) {
+                candidates.push(unionType);
+              }
+              element.type = oldType.copy();
             }
-            from.type.setElementType(nodeListToType(from.elements));
+            element.type = oldType;
+            if (candidates.length == 1) {
+              // expand the list, maps, or record internal types to unions if necessary
+              isAssignableTo(element, candidates[0]);
+            } else {
+              if (candidates.length > 1) {
+                throw new LittleFootError(
+                  from.location,
+                  `Must expand type ${from.type.signature} to a type in union ${to.signature}, but multiple candidates were found. Candidates:\n` +
+                    candidates.map((type) => type.signature).join("\n")
+                );
+              }
+            }
           }
-        }
-      } else if (to.kind == "union") {
-        // If to is a union, check if any of the union types are
-        // compatible list types. If so, assign to's union type
-        // to the from's type.
-        let found = false;
-        for (const unionType of to.types) {
-          if (typeIsAssignableTo(from.type, unionType)) {
-            found = true;
-            break;
+
+          // All elements should have an expanded type now, set from's type
+          // to the unification of those types.
+          let newElementType = new UnionType([]);
+          for (const element of from.elements) {
+            newElementType = unify(element.type, newElementType);
           }
+          from.type.setElementType(newElementType);
         }
-        if (found) {
-          from.type = to;
+        return;
+      }
+
+      // Otherwise, if to's element type is a list, expand from's
+      // value types recursively.
+      if (to.elementType.kind == "list") {
+        if (!isEqual(from.type.elementType, to.elementType)) {
+          for (const element of from.elements) {
+            expandLiteralValueTypesToUnions(element, to.elementType);
+          }
+          from.type.setElementType(nodeListToType(from.elements));
         }
+        return;
       }
       return;
     }
 
     // If from is a map literal and to is a map type expand
     // from's value type to a union if necessary.
-    if (from.kind == "map literal" && from.type.kind == "map") {
-      if (to.kind == "map") {
-        if (to.valueType.kind == "union") {
-          // If to's value type is a union, unify from's value type
-          // with the union.
-          from.type.setValueType(unify(from.type.valueType, to.valueType));
+    if (from.kind == "map literal" && from.type.kind == "map" && to.kind == "map") {
+      if (to.valueType.kind == "union") {
+        // If to's value type is a union, unify from's value type
+        // with the union.
+        if (typeIsAssignableTo(from.type.valueType, to.valueType)) {
+          from.type.setValueType(to.valueType);
         } else {
-          // Otherwise, if to's value type is a list, expand from's
-          // value types recursively.
-          if (!isEqual(from.type.valueType, to.valueType)) {
-            for (const element of from.values) {
-              expandLiteralValueTypesToUnions(element, to.valueType);
+          // For each element in the literal, find the best
+          // candidate type in the union, then expand to it.
+          // Once all candidates have been identified, unify
+          // them into a single union and assign that
+          // as the element type of from.
+          for (let i = 0; i < from.values.length; i++) {
+            const element = from.values[i];
+            const oldType = element.type.copy();
+            let candidates: Type[] = [];
+            for (const unionType of to.valueType.types) {
+              // If we have a perfect type match, select it
+              if (isEqual(element.type, unionType)) {
+                candidates = [unionType];
+                break;
+              }
+              // Otherwise, check if from is assignable to to and if so
+              // add it to the list of candidates.
+              if (isAssignableTo(element, unionType)) {
+                candidates.push(unionType);
+              }
+              element.type = oldType.copy();
             }
-            from.type.setValueType(nodeListToType(from.values));
+            element.type = oldType;
+            if (candidates.length == 1) {
+              // expand the list, maps, or record internal types to unions if necessary
+              isAssignableTo(element, candidates[0]);
+            } else {
+              if (candidates.length > 1) {
+                throw new LittleFootError(
+                  from.location,
+                  `Must expand type ${from.type.signature} to a type in union ${to.signature}, but multiple candidates were found. Candidates:\n` +
+                    candidates.map((type) => type.signature).join("\n")
+                );
+              }
+            }
           }
-        }
-      } else if (to.kind == "union") {
-        // If to is a union, check if any of the union types are
-        // compatible list types. If so, assign to's union type
-        // to the from's type.
-        let found = false;
-        for (const unionType of to.types) {
-          if (typeIsAssignableTo(from.type, unionType)) {
-            found = true;
-            break;
+
+          // All elements should have an expanded type now, set from's type
+          // to the unification of those types.
+          let newElementType = new UnionType([]);
+          for (const element of from.values) {
+            newElementType = unify(element.type, newElementType);
           }
+          from.type.setValueType(newElementType);
         }
-        if (found) {
-          from.type = to;
-        }
+        return;
       }
+
+      // Otherwise, if to's value type is a list, expand from's
+      // value types recursively.
+      if (!isEqual(from.type.valueType, to.valueType)) {
+        for (const element of from.values) {
+          expandLiteralValueTypesToUnions(element, to.valueType);
+        }
+        from.type.setValueType(nodeListToType(from.values));
+      }
+
       return;
     }
 
     // If from is a record literal and to is a record type expand
     // from's field types to a union if necessary.
-    if (from.kind == "record literal" && from.type.kind == "record") {
-      if (to.kind == "record") {
-        // If from has less fields than to, the two record types
-        // can't be compatible so don't do anything.
-        if (from.fieldValues.length < to.fields.length) return;
+    if (from.kind == "record literal" && from.type.kind == "record" && to.kind == "record") {
+      // If from has less fields than to, the two record types
+      // can't be compatible so don't do anything.
+      if (from.fieldValues.length < to.fields.length) return;
 
-        for (let i = 0; i < from.fieldValues.length; i++) {
-          const fieldName = from.fieldNames[i];
-          const fieldValue = from.fieldValues[i];
-          let found = false;
-          for (const toField of to.fields) {
-            if (fieldName.value !== toField.name) continue;
-            expandLiteralValueTypesToUnions(fieldValue, toField.type);
-            found = true;
-            break;
-          }
-          if (!found) return;
-        }
-        for (let i = 0; i < from.fieldValues.length; i++) {
-          from.type.fields[i].type = from.fieldValues[i].type;
-        }
-        from.type.updateSignature();
-      } else if (to.kind == "union") {
-        // Otherwise, if to is a union, check if there's a record type
-        // in the union that matches, and if so, set from's type
-        // to be to's union type.
+      for (let i = 0; i < from.fieldValues.length; i++) {
+        const fieldName = from.fieldNames[i];
+        const fieldValue = from.fieldValues[i];
         let found = false;
-        for (const unionType of to.types) {
-          if (typeIsAssignableTo(from.type, unionType)) {
-            found = true;
-            break;
-          }
+        for (const toField of to.fields) {
+          if (fieldName.value !== toField.name) continue;
+          expandLiteralValueTypesToUnions(fieldValue, toField.type);
+          found = true;
+          break;
         }
-        if (found) {
-          from.type = to;
-        }
+        if (!found) return;
       }
+      for (let i = 0; i < from.fieldValues.length; i++) {
+        from.type.fields[i].type = from.fieldValues[i].type;
+      }
+      from.type.updateSignature();
       return;
     }
 
-    if (to.kind == "union") {
-      // Otherwise, if from is a built-in type and to is union
-      // set from's type to the unified union of its type and to's
-      // union type.
-      // FIXME this is wonky
-      from.type = unify(from.type, to);
+    // if to is a union and from is a list, map, or record literal:
+    // 1. Find the best candidate in the union type list that is equal to from's type, or to which
+    //    from is assiganble to.
+    // 2. Expand from's parts to the found candidate.
+    //
+    // If more than one candidate is found, then from needs to be type annotated to help pick the
+    // best candidate. Report this as an error.
+    if (to.kind == "union" && (from.kind == "list literal" || from.kind == "map literal" || from.kind == "record literal")) {
+      const oldType = from.type.copy();
+      let candidates: Type[] = [];
+      for (const unionType of to.types) {
+        // If we have a perfect type match, select it
+        if (isEqual(from.type, unionType)) {
+          candidates = [unionType];
+          break;
+        }
+        // Otherwise, check if from is assignable to to and if so
+        // add it to the list of candidates.
+        if (isAssignableTo(from, unionType)) {
+          candidates.push(unionType);
+        }
+        from.type = oldType.copy();
+      }
+      from.type = oldType;
+      if (candidates.length == 1) {
+        // expand the list, maps, or record internal types to unions if necessary
+        isAssignableTo(from, candidates[0]);
+        // Set from's type to the full union so we can box later
+        from.type = to;
+      } else {
+        if (candidates.length > 1) {
+          throw new LittleFootError(
+            from.location,
+            `Must expand type ${from.type.signature} to a type in union ${to.signature}, but multiple candidates were found. Candidates:\n` +
+              candidates.map((type) => type.signature).join("\n")
+          );
+        }
+      }
     }
   }
 }
@@ -1551,12 +1653,10 @@ function hasEmptyListOrMap(type: Type) {
   let found = false;
   traverseType(type, (type) => {
     if (type.kind == "list" && type.elementType.signature == UnknownType.signature) {
-      // Using signature because scoreFunction copies types.
       found = true;
       return false;
     }
     if (type.kind == "map" && type.valueType.signature == UnknownType.signature) {
-      // Using signature because scoreFunction copies types.
       found = true;
       return false;
     }

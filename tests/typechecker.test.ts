@@ -180,8 +180,8 @@ describe("Typechecker tests", () => {
       i = [[0], ["string"]]
       var x: number | string = 0
       var h: [number|string] = [0]
-      var m: {number} = {}
-      m = {}
+      var mm: {number} = {}
+      mm = {}
       var n:{{number}} = {"a": {}}
       var o:{{number}} = {"a": {}, "b": {}, "c": { "d": 0}}
       var p:{{number} | number | {string}} = {}
@@ -189,7 +189,7 @@ describe("Typechecker tests", () => {
       q = {"a": {:number}, "b": {:number}}
       var y: {number|string} = {"a": 0}
 
-      var r: <m: [number], r: <f: [string]>> = <m: [], r: <f: []>>
+      var rr: <m: [number], r: <f: [string]>> = <m: [], r: <f: []>>
       var s: <x: number | string> = <x: 0>
       var xx: <x: number | string> | number = <x: 0>
 
@@ -199,6 +199,37 @@ describe("Typechecker tests", () => {
       end
 
       foo([[<x: 0, y: 0, z: 0>]])
+
+      var l1: [number | string] = [0, 1, 2]
+      var l2: [number | string] | [number] = [0, 1, 2]
+      var l3: [[number | string] | [number]] = [[0, 1, 2]]
+      var l4: [[number | string] | [number]] = [[0, 1, 2], ["string"]]
+      func l(p: [[number | string] | [number]])
+      end
+      l([[0, 1, 2]])
+
+      var m1: {number | string} = {"a": 0}
+      var m2: {number | string} | {number} = {"a": 0}
+      var m3: {{number | string} | {number}} = {"a" : {"a": 0}}
+      var m4: {{number | string} | {number}} = {"a" : {"a": 0}, "b": { "b" : "string"}}
+
+      func m(p: {{number | string} | {number}})
+      end
+      m({"a" : {"a": 0}})
+
+      var r1: <x: number | string> = <x: 0>
+      var r2: <x: number | string> | <x: number> = <x: 0>
+      var r3: <x: <y: number | string> | <y: number>> = <x: <y: 0>>
+      func r(p: <x: <y: number | string> | <y: number>>)
+      end
+      r(<x: <y: 0>>)
+
+      func nn(): number
+        return 0
+      end
+      var rt = nn()
+      var nn: number | string = rt
+      nn = 0
     `);
     expect(errors.length).toBe(0);
   });
