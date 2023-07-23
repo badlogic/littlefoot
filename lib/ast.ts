@@ -164,7 +164,8 @@ export class VariableNode extends BaseAstNode {
     public typeNode: TypeSpecifierNode | null,
     public readonly initializer: ExpressionNode,
     public readonly exported: boolean,
-    public readonly constant: boolean
+    public readonly constant: boolean,
+    public moduleVariable = false
   ) {
     super(SourceLocation.from(firstToken.location, initializer.location));
   }

@@ -8,7 +8,7 @@ import { FunctionType, Functions, NamedFunctionType, NothingType, Types } from "
 
 export class Module {
   constructor(
-    public readonly path: string,
+    public readonly source: Source,
     public readonly types = new Types(),
     public readonly functions = new Functions(),
     public readonly variables = new Map<string, VariableNode>(),
@@ -63,34 +63,19 @@ function getAbsolutePath(parentDir: string, path: string): string {
 }
 
 export function compileModule(path: string, context: CompilerContext) {
-  const parentDir = context.moduleStack.length > 0 ? context.moduleStack[context.moduleStack.length - 1].path : "";
+  const parentDir = context.moduleStack.length > 0 ? context.moduleStack[context.moduleStack.length - 1].source.path : "";
   const absolutePath = getAbsolutePath(parentDir, path) + (path.endsWith(".lf") ? "" : ".lf");
   if (context.modules.has(absolutePath)) return context.modules.get(absolutePath)!;
   const source = context.getSource(absolutePath);
   if (!source) throw new Error(`Couldn't find source with path '${absolutePath}'`);
 
-  const module = new Module(absolutePath);
+  const module = new Module(source);
   context.moduleStack.push(module);
   context.modules.set(absolutePath, module);
 
   module.ast = parse(source, context.errors);
 
-  // Extract all top level statements into a generated $main function.
-  const mainStatements = module.ast.filter((node) => {
-    return node.kind != "import" && node.kind != "function declaration" && node.kind != "type declaration";
-  }) as StatementNode[];
-  const mainLocation = new SourceLocation(source, 0, source.text.length);
-  const mainNode = new FunctionLiteralNode(new IdentifierToken(mainLocation, source.text), [], null, mainStatements, mainLocation);
-  module.functions.add("$main", new NamedFunctionType("$main", new FunctionType([], NothingType), mainNode, false, false, mainLocation));
-
   checkTypes(new TypeCheckerContext(module, context));
-
-  // Gather all module level vars
-  module.ast.forEach((node) => {
-    if (node.kind == "variable declaration") {
-      module.variables.set(node.name.value, node);
-    }
-  });
 
   context.moduleStack.pop();
   return module;

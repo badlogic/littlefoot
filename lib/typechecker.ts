@@ -1,8 +1,9 @@
 // prettier-ignore
-import {AstNode, DoNode, ForEachNode, ForNode, FunctionLiteralNode, FunctionNode, ImportNode, ImportedNameNode, IsOperatorNode, ListLiteralNode, LoopVariable, MapLiteralNode, NameAndTypeNode, RecordLiteralNode, ReturnNode, TypeNode, TypeSpecifierNode, VariableAccessNode, VariableNode, WhileNode, traverseAst,} from "./ast";
+import {AstNode, DoNode, ForEachNode, ForNode, FunctionLiteralNode, FunctionNode, ImportNode, ImportedNameNode, IsOperatorNode, ListLiteralNode, LoopVariable, MapLiteralNode, NameAndTypeNode, RecordLiteralNode, ReturnNode, StatementNode, TypeNode, TypeSpecifierNode, VariableAccessNode, VariableNode, WhileNode, traverseAst,} from "./ast";
 import { CompilerContext, Module, compileModule } from "./compiler";
 import { LittleFootError } from "./error";
 import { SourceLocation } from "./source";
+import { IdentifierToken } from "./tokenizer";
 // prettier-ignore
 import { BooleanType, FunctionType, ListType, MapType, NameAndType, NamedFunctionType, NamedType, NothingType, NumberType, RecordType, ResolvingTypeMarker, StringType, Type, UnionType, UnknownType, isAssignableTo as typeIsAssignableTo, isEqual, traverseType, PrimitiveType } from "./types";
 
@@ -87,6 +88,14 @@ export function checkTypes(context: TypeCheckerContext) {
   const { ast, types, functions } = context.module;
   const errors = context.compilerContext.errors;
 
+  // Extract all top level statements into a generated $main function.
+  const mainStatements = context.module.ast.filter((node) => {
+    return node.kind != "import" && node.kind != "function declaration" && node.kind != "type declaration";
+  }) as StatementNode[];
+  const mainLocation = new SourceLocation(context.module.source, 0, context.module.source.text.length);
+  const mainNode = new FunctionLiteralNode(new IdentifierToken(mainLocation, context.module.source.text), [], null, mainStatements, mainLocation);
+  context.module.functions.add("$main", new NamedFunctionType("$main", new FunctionType([], NothingType), mainNode, false, false, mainLocation));
+
   // Handle all the imports
   const imports: ImportNode[] = ast.filter((node) => node.kind == "import") as ImportNode[];
   for (const imp of imports) {
@@ -101,6 +110,14 @@ export function checkTypes(context: TypeCheckerContext) {
       return;
     }
   }
+
+  // Gather all module level vars after resolving imports,
+  // as imports will set imported module level vars.
+  context.module.ast.forEach((node) => {
+    if (node.kind == "variable declaration") {
+      context.module.variables.set(node.name.value, node);
+    }
+  });
 
   // Gather named type nodes. These are named types that other
   // types may refer to. Set their type to UnknownType.
@@ -203,12 +220,6 @@ export function checkTypes(context: TypeCheckerContext) {
           }
           return true;
         });
-        if (node.kind != "type reference" && node.kind != "name and type") {
-          if (node.type.kind == "named function" || node.type.kind == "named type") {
-            // FIXME do we want to allow this or not?
-            // throw new LittleFootError(node.location, "Internal error: AST node has named type.");
-          }
-        }
         return true;
       });
     } catch (e) {
@@ -367,7 +378,7 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
         // We do not export anything transiently.
         module.types.lookup.forEach((type, name) => {
           if (type.kind == "named type") {
-            if (type.location.source.path == module.path && type.exported) {
+            if (type.location.source.path == module.source.path && type.exported) {
               context.module.types.add(name, type);
               if (type.constructorFunction) {
                 context.module.functions.add(name, type.constructorFunction);
@@ -377,14 +388,14 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
         });
         module.functions.lookup.forEach((funcs, name) => {
           for (const func of funcs) {
-            if (func.location.source.path == module.path && func.exported) {
+            if (func.location.source.path == module.source.path && func.exported) {
               context.module.functions.add(name, func);
             }
           }
         });
         for (const name of module.variables.keys()) {
           const variable = module.variables.get(name)!;
-          if (variable.location.source.path == module.path && variable.exported) {
+          if (variable.location.source.path == module.source.path && variable.exported) {
             context.module.variables.set(name, variable);
             scopes.add(name, variable);
           }
@@ -408,7 +419,7 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
             found = true;
             const type = module.types.lookup.get(importedName.name.value)!;
             if (type.kind == "named type") {
-              if (type.location.source.path == module.path) {
+              if (type.location.source.path == module.source.path) {
                 context.module.types.add(alias, type);
                 if (type.constructorFunction) {
                   context.module.functions.add(alias, type.constructorFunction);
@@ -420,7 +431,7 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
             found = true;
             const funcs = module.functions.get(importedName.name.value)!;
             for (const func of funcs) {
-              if (func.location.source.path == module.path && func.exported) {
+              if (func.location.source.path == module.source.path && func.exported) {
                 context.module.functions.add(alias, func);
               }
             }
