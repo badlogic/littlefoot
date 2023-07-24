@@ -6,7 +6,11 @@ import { LittleFootError, keywords } from "../lib";
 export class Editor {
   editor: monaco.editor.IStandaloneCodeEditor;
 
-  constructor(container: HTMLElement, public changeCallback: (newText: string) => void = () => {}) {
+  constructor(
+    container: HTMLElement,
+    public changeCallback: (newText: string) => void = () => {},
+    public selectionCallback: (start: number, end: number) => void = () => {}
+  ) {
     defineLittleFootLanguage();
     this.editor = monaco.editor.create(container, {
       automaticLayout: true,
@@ -23,6 +27,11 @@ export class Editor {
     });
 
     this.editor.onDidChangeModelContent(() => changeCallback(this.value));
+    this.editor.onDidChangeCursorSelection((e) => {
+      const start = this.editor.getModel()!.getOffsetAt(e.selection.getSelectionStart());
+      const end = this.editor.getModel()!.getOffsetAt(e.selection.getEndPosition());
+      selectionCallback(start, end);
+    });
   }
 
   set value(text: string) {
@@ -69,7 +78,7 @@ export function defineLittleFootLanguage() {
   });
   monaco.languages.setMonarchTokensProvider("littlefoot", {
     escapes: /\\(?:[abfnrtv\\"']|x[0-9A-Fa-f]{1,4}|u[0-9A-Fa-f]{4}|U[0-9A-Fa-f]{8})/,
-    keywords: [...keywords, "is", "as"],
+    keywords: [...keywords, "is", "as", "true", "false", "nothing"],
     brackets: [
       { open: "{", close: "}", token: "delimiter.curly" },
       { open: "[", close: "]", token: "delimiter.bracket" },
@@ -90,9 +99,11 @@ export function defineLittleFootLanguage() {
         [/[{}()\[\]]/, "@brackets"],
         [/\d*\.\d+([eE][\-+]?\d+)?/, "number.float"],
         [/0[x][0-9a-fA-F]+/, "number.hex"],
+        [/0[b][0-1]+/, "number.hex"],
         [/\d+/, "number"],
         [/[;,.]/, "delimiter"],
         [/"([^"\\]|\\.)*$/, "string.invalid"], // non-teminated string
+        [/"([^"\\]|\\[\s\S])*"/g, "string"], // Multi-line string
         [/"/, { token: "string.quote", bracket: "@open", next: "@string" }],
       ],
       string: [

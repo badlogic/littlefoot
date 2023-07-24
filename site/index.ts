@@ -8,10 +8,16 @@ import { Editor } from "./editor";
 const editorContainer = document.querySelector("#editor") as HTMLTextAreaElement;
 const output = document.querySelector("#output") as HTMLDivElement;
 
-const editor = new Editor(editorContainer, (newText: string) => {
-  localStorage.setItem("source", editor.value);
-  compileText(editor.value);
-});
+const editor = new Editor(
+  editorContainer,
+  (newText: string) => {
+    localStorage.setItem("source", editor.value);
+    compileText(editor.value);
+  },
+  (start, end) => {
+    console.log(`Selection: ${start}-${end}`);
+  }
+);
 
 const stored = localStorage.getItem("source");
 if (stored) editor.value = stored;

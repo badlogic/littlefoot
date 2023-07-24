@@ -4,7 +4,7 @@ import esbuild from "esbuild";
 
 let watch = process.argv.length >= 3 && process.argv[2] == "--watch";
 
-const buildContext = await esbuild.context({
+const config = {
   entryPoints: {
     index: "site/index.ts",
     "editor.worker": "monaco-editor/esm/vs/editor/editor.worker.js",
@@ -19,9 +19,12 @@ const buildContext = await esbuild.context({
   },
   logLevel: "info",
   minify: !watch,
-});
+};
+
 if (!watch) {
-  await buildContext.rebuild();
+  console.log("Building site");
+  await esbuild.build(config);
 } else {
+  const buildContext = await esbuild.context(config);
   buildContext.watch();
 }

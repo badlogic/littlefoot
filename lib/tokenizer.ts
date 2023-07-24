@@ -8,8 +8,8 @@ export abstract class Token {
 export class NothingToken extends Token {}
 export class BoolToken extends Token {}
 export class NumberToken extends Token {
-  constructor(location: SourceLocation, public readonly numberValue: number, comments: CommentToken[]) {
-    super(location, numberValue.toString(), comments);
+  constructor(location: SourceLocation, value: string, public readonly numberValue: number, comments: CommentToken[]) {
+    super(location, value, comments);
   }
 }
 export class StringToken extends Token {}
@@ -154,7 +154,7 @@ export function tokenize(source: Source, errors: LittleFootError[]) {
       i++;
 
       if (i == n) {
-        tokens.push(new NumberToken(new SourceLocation(source, start, i), Number.parseInt(char), comments));
+        tokens.push(new NumberToken(new SourceLocation(source, start, i), char, Number.parseInt(char), comments));
         comments = [];
         continue;
       }
@@ -175,7 +175,7 @@ export function tokenize(source: Source, errors: LittleFootError[]) {
           errors.push(new LittleFootError(new SourceLocation(source, start, i), `Expected one or more hexadecimal digits.`));
           return tokens;
         }
-        tokens.push(new NumberToken(new SourceLocation(source, start, i), Number.parseInt(value, 16), comments));
+        tokens.push(new NumberToken(new SourceLocation(source, start, i), "0x" + value, Number.parseInt(value, 16), comments));
         comments = [];
         continue;
       } else if (char == "0" && text.charAt(i) == "b") {
@@ -193,7 +193,7 @@ export function tokenize(source: Source, errors: LittleFootError[]) {
           errors.push(new LittleFootError(new SourceLocation(source, start, i), `Expected one or more binary digits.`));
           return tokens;
         }
-        tokens.push(new NumberToken(new SourceLocation(source, start, i), Number.parseInt(value, 2), comments));
+        tokens.push(new NumberToken(new SourceLocation(source, start, i), "0b" + value, Number.parseInt(value, 2), comments));
         comments = [];
         continue;
       } else {
@@ -202,7 +202,7 @@ export function tokenize(source: Source, errors: LittleFootError[]) {
           i++;
         }
         if (i == n) {
-          tokens.push(new NumberToken(new SourceLocation(source, start, i), Number.parseFloat(value), comments));
+          tokens.push(new NumberToken(new SourceLocation(source, start, i), value, Number.parseFloat(value), comments));
           comments = [];
           continue;
         }
@@ -215,7 +215,7 @@ export function tokenize(source: Source, errors: LittleFootError[]) {
             i++;
           }
         }
-        tokens.push(new NumberToken(new SourceLocation(source, start, i), Number.parseFloat(value), comments));
+        tokens.push(new NumberToken(new SourceLocation(source, start, i), value, Number.parseFloat(value), comments));
         comments = [];
         continue;
       }
