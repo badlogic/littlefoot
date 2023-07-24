@@ -1059,7 +1059,10 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
                 .join("\n")}`
             );
           }
-          node.target.type = closestFunc[0].type;
+          // FIXME if the function has generic parameters, bind them to the
+          // types of the arguments, make a copy of the function AST, recheck the AST, and add the
+          // instantiated function to the known functions.
+          node.target.type = closestFunc[0];
           node.type = closestFunc[0].type.returnType;
         }
       } else {
@@ -1131,7 +1134,7 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
             .join("\n")}`
         );
       }
-      node.target.type = closestFunc[0].type;
+      node.target.type = closestFunc[0];
       node.type = closestFunc[0].type.returnType;
       break;
     default:
