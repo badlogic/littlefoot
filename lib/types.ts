@@ -148,6 +148,7 @@ export class NamedFunctionType extends BaseType {
 
   constructor(
     public readonly name: string,
+    public readonly genericTypeNames: string[],
     public type: FunctionType,
     public ast: FunctionNode | FunctionLiteralNode,
     public readonly exported: boolean,
@@ -163,7 +164,7 @@ export class NamedFunctionType extends BaseType {
   }
 
   copy(): NamedFunctionType {
-    return new NamedFunctionType(this.name, this.type.copy(), this.ast, this.exported, this.external, this.location);
+    return new NamedFunctionType(this.name, this.genericTypeNames, this.type.copy(), this.ast, this.exported, this.external, this.location);
   }
 }
 
@@ -174,6 +175,7 @@ export const BooleanType = new PrimitiveType("boolean");
 export const NumberType = new PrimitiveType("number");
 export const StringType = new PrimitiveType("string");
 export const UnknownType = new PrimitiveType("$unknown");
+export const AnyType = new PrimitiveType("$any"); // Used for generics so we can do some type checking.
 export const ResolvingTypeMarker = new PrimitiveType("$resolving");
 
 function assertNever(x: never) {
@@ -435,6 +437,11 @@ export function isAssignableTo(from: Type, to: Type): boolean {
   }
   if (to.kind == "named function" || to.kind == "named type") {
     to = to.type;
+  }
+
+  // If to is the any type, anything is assignable
+  if (to == AnyType) {
+    return true;
   }
 
   // This handles primitives and is also an early out for

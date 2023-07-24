@@ -110,6 +110,7 @@ export class TypeNode extends BaseAstNode {
   constructor(
     firstToken: Token,
     public readonly name: IdentifierToken,
+    public readonly genericTypeNames: IdentifierToken[],
     public readonly typeNode: TypeSpecifierNode,
     public readonly exported: boolean
   ) {
@@ -144,6 +145,7 @@ export class FunctionNode extends BaseAstNode {
   constructor(
     firstToken: Token,
     public readonly name: IdentifierToken,
+    public readonly genericTypeNames: IdentifierToken[],
     public readonly parameters: NameAndTypeNode[],
     public returnType: TypeSpecifierNode | null,
     public readonly code: StatementNode[],

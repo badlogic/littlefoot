@@ -1,11 +1,11 @@
 // prettier-ignore
-import {AstNode, DoNode, ForEachNode, ForNode, FunctionLiteralNode, FunctionNode, ImportNode, ImportedNameNode, IsOperatorNode, ListLiteralNode, LoopVariable, MapLiteralNode, NameAndTypeNode, RecordLiteralNode, ReturnNode, StatementNode, TypeNode, TypeSpecifierNode, VariableAccessNode, VariableNode, WhileNode, traverseAst,} from "./ast";
+import { AstNode, DoNode, ForEachNode, ForNode, FunctionLiteralNode, FunctionNode, ImportNode, ImportedNameNode, IsOperatorNode, LoopVariable, NameAndTypeNode, ReturnNode, StatementNode, TypeNode, TypeReferenceNode, TypeSpecifierNode, VariableAccessNode, VariableNode, WhileNode, traverseAst } from "./ast";
 import { CompilerContext, Module, compileModule } from "./compiler";
 import { LittleFootError } from "./error";
 import { SourceLocation } from "./source";
 import { IdentifierToken } from "./tokenizer";
 // prettier-ignore
-import { BooleanType, FunctionType, ListType, MapType, NameAndType, NamedFunctionType, NamedType, NothingType, NumberType, RecordType, ResolvingTypeMarker, StringType, Type, UnionType, UnknownType, isAssignableTo as typeIsAssignableTo, isEqual, traverseType, PrimitiveType } from "./types";
+import { AnyType, BooleanType, FunctionType, ListType, MapType, NameAndType, NamedFunctionType, NamedType, NothingType, NumberType, RecordType, ResolvingTypeMarker, StringType, Type, UnionType, UnknownType, isEqual, traverseType, isAssignableTo as typeIsAssignableTo } from "./types";
 
 function assertNever(x: never) {
   throw new Error("Unexpected object: " + x);
@@ -67,6 +67,7 @@ export class TypeCheckerContext {
     public readonly module: Module,
     public readonly compilerContext: CompilerContext,
     public readonly scopes = new SymbolScopes(),
+    public readonly genericBindings = new Map<String, Type>(),
     private currentLoop: (ForNode | ForEachNode | WhileNode | DoNode)[] = []
   ) {}
 
@@ -94,7 +95,7 @@ export function checkTypes(context: TypeCheckerContext) {
   }) as StatementNode[];
   const mainLocation = new SourceLocation(context.module.source, 0, context.module.source.text.length);
   const mainNode = new FunctionLiteralNode(new IdentifierToken(mainLocation, context.module.source.text), [], null, mainStatements, mainLocation);
-  context.module.functions.add("$main", new NamedFunctionType("$main", new FunctionType([], NothingType), mainNode, false, false, mainLocation));
+  context.module.functions.add("$main", new NamedFunctionType("$main", [], new FunctionType([], NothingType), mainNode, false, false, mainLocation));
 
   // Handle all the imports
   const imports: ImportNode[] = ast.filter((node) => node.kind == "import") as ImportNode[];
@@ -165,6 +166,7 @@ export function checkTypes(context: TypeCheckerContext) {
       const funcType = new FunctionType(type.type.fields, type);
       type.constructorFunction = new NamedFunctionType(
         type.name,
+        typeNode.genericTypeNames.map((type) => type.value),
         funcType,
         new FunctionLiteralNode(typeNode.name, [], null, [], typeNode.name.location),
         true,
@@ -182,7 +184,15 @@ export function checkTypes(context: TypeCheckerContext) {
   for (const func of namedFunctions) {
     try {
       const functionType = checkFunctionNode(func, context, false);
-      const namedFunction = new NamedFunctionType(func.name.value, functionType, func, func.exported, func.external, func.location);
+      const namedFunction = new NamedFunctionType(
+        func.name.value,
+        func.genericTypeNames.map((type) => type.value),
+        functionType,
+        func,
+        func.exported,
+        func.external,
+        func.location
+      );
       functions.add(namedFunction.name, namedFunction);
     } catch (e) {
       if (e instanceof LittleFootError) errors.push(e);
@@ -199,6 +209,7 @@ export function checkTypes(context: TypeCheckerContext) {
 
     // TODO recover in case a statement or expression throws an error and type check the remainder of the AST if possible
     // This should work for errors within functions. For top-level statements, stop if a var declaration fails.
+    // Make sure that state in TypeCheckerContext is cleaned-up properly, e.g. current loop, scopes, generic bindings, etc.
     try {
       checkNodeTypes(node, context);
     } catch (e) {
@@ -245,6 +256,7 @@ export function checkTypes(context: TypeCheckerContext) {
 
 export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
   const types = context.module.types;
+  const genericBindings = context.genericBindings;
   const functions = context.module.functions;
   const scopes = context.scopes;
 
@@ -328,10 +340,11 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
       break;
     }
     case "type reference": {
-      if (!types.has(node.name.value)) {
+      if (!types.has(node.name.value) && !genericBindings.has(node.name.value)) {
         throw new LittleFootError(node.location, `Could not find type '${node.name.value}'.`);
       }
-      const type = types.get(node.name.value)! as NamedType;
+      // Look for the type in the generic bindings first.
+      const type = (genericBindings.has(node.name.value) ? genericBindings.get(node.name.value)! : types.get(node.name.value)) as NamedType;
       // If we are in the type resolution phase, we might encounter types
       // that haven't been resolved yet in other type declarations. Resolve
       // them here.
@@ -347,12 +360,43 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
       if (node.type.kind == "named type") {
         const type = types.get(node.name.value)! as NamedType;
         type.type = ResolvingTypeMarker;
+        genericBindings.clear();
+        for (const genericType of node.genericTypeNames) {
+          genericBindings.set(
+            genericType.value,
+            new NamedType(
+              genericType.value,
+              AnyType,
+              new TypeNode(genericType, genericType, [], new TypeReferenceNode(genericType), false),
+              false,
+              genericType.location
+            )
+          );
+        }
         checkNodeTypes(node.typeNode, context);
         if (node.typeNode.type == UnknownType) {
           throw new LittleFootError(node.name.location, `Internal compiler error: named type '${node.name.value}' should have a type set.`);
         }
         (node.type as NamedType).type = node.typeNode.type;
-        // node.type = node.typeNode.type;
+
+        // Check if all generic types have been used in the type specifier.
+        // FIXME Not strictly necessary, and should probably be a warning.
+        let genericTypes = new Set<String>(node.genericTypeNames.map((type) => type.value));
+        for (const genericType of node.genericTypeNames) {
+          traverseType(node.typeNode.type, (type) => {
+            if (type.kind == "named type") {
+              genericTypes.delete(type.name);
+            }
+            return true;
+          });
+        }
+        if (genericTypes.size > 0) {
+          let missingTypes = [];
+          for (const missingType of genericTypes.values()) {
+            missingTypes.push(missingType);
+          }
+          throw new LittleFootError(node.typeNode.location, `Not all generic types used in type specifier: ${missingTypes.join(", ")}.`);
+        }
         return;
       }
       break;
@@ -821,7 +865,7 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
               `Operand of '${node.operator.value}' operator must be a number, but is a '${node.expression.type.signature}'`
             );
           }
-          node.type = BooleanType;
+          node.type = NumberType;
           break;
         default:
           throw new LittleFootError(node.operator.location, `Unknown operator ${node.operator.value}`);
@@ -1101,7 +1145,22 @@ function checkFunctionNode(node: FunctionLiteralNode | FunctionNode, context: Ty
       throw new LittleFootError(node.name.location, "Functions that are called recursively, either directly or indirectly, must have a return type.");
     }
     node.isBeingChecked = true;
+
+    context.genericBindings.clear();
+    for (const genericType of node.genericTypeNames) {
+      context.genericBindings.set(
+        genericType.value,
+        new NamedType(
+          genericType.value,
+          AnyType,
+          new TypeNode(genericType, genericType, [], new TypeReferenceNode(genericType), false),
+          false,
+          genericType.location
+        )
+      );
+    }
   }
+
   context.scopes.push();
   for (const parameter of node.parameters) {
     checkNodeTypes(parameter, context);
@@ -1109,6 +1168,28 @@ function checkFunctionNode(node: FunctionLiteralNode | FunctionNode, context: Ty
   }
 
   if (node.returnType) checkNodeTypes(node.returnType, context);
+
+  // Check if all generic types are being used by parameters and/or return type
+  if (node.kind == "function declaration") {
+    let genericTypes = new Set<String>(node.genericTypeNames.map((type) => type.value));
+    for (const genericType of node.genericTypeNames) {
+      for (const parameter of node.parameters) {
+        traverseType(parameter.type, (type) => {
+          if (type.kind == "named type") {
+            genericTypes.delete(type.name);
+          }
+          return true;
+        });
+      }
+    }
+    if (genericTypes.size > 0) {
+      let missingTypes = [];
+      for (const missingType of genericTypes.values()) {
+        missingTypes.push(missingType);
+      }
+      throw new LittleFootError(node.name.location, `Not all generic types used in function parameter list: ${missingTypes.join(", ")}.`);
+    }
+  }
 
   if (checkCode) {
     checkBlock(node.code, context);
@@ -1618,9 +1699,10 @@ function scoreFunction(func: NamedFunctionType, args: AstNode[]) {
   }
   try {
     // For each argument, calculate a score:
-    // 1. If the types match, add 2 to the score
+    // 1. If the types match, add 3 to the score
     // 2. If the argument type is assignable to the
-    //    parameter type, add 1 to the score
+    //    parameter type, add 1 to the score if its a generic
+    //    type, and 2 if it is a non-generic type.
     //
     // This way functions with more direct type matches
     // between arguments and parameters will score higher
@@ -1629,13 +1711,14 @@ function scoreFunction(func: NamedFunctionType, args: AstNode[]) {
       const param = func.type.parameters[i].type;
       const arg = args[i];
       if (isEqual(arg.type, param)) {
-        score += 2;
+        score += 3;
       } else {
         // Need to copy the argument node, as isAssignableTo
         // may modify its type hierarchy.
         arg.type = arg.type.copy();
         if (isAssignableTo(arg, param)) {
-          score += 1;
+          // Penalize generic parameters, which have type AnyType.
+          score += isGeneric(param) ? 1 : 2;
         } else {
           match = false;
           break;
@@ -1675,6 +1758,18 @@ function hasUnion(type: Type) {
   let found = false;
   traverseType(type, (type) => {
     if (type.kind == "union") {
+      found = true;
+      return false;
+    }
+    return true;
+  });
+  return found;
+}
+
+function isGeneric(type: Type) {
+  let found = false;
+  traverseType(type, (type) => {
+    if (type == AnyType) {
       found = true;
       return false;
     }

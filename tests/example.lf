@@ -205,3 +205,15 @@ _test
 a.b.toString()
 
 const blargh = 123
+
+type node[K, V] = <children: [node], key: K, value: V>
+var myNode = node([], 10, 10)
+
+func indexOf[T](list: [T], value: T)
+  for i from 0 to list.length() do
+    if list[i] == value then
+      return i
+    end
+  end
+  return -1
+end

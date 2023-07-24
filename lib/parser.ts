@@ -151,11 +151,21 @@ function parseType(stream: TokenStream, attributes: Attribute[] = []) {
   const firstToken = stream.expectValue("type");
   const name = stream.expectType(IdentifierToken);
   if (attributes.length > 1) throw new LittleFootError(name.location, `Expected only 'export' attribute but got '${attributes.join(",")}'`);
-  if (attributes.length == 1 && attributes[0] != Attribute.Export)
+  if (attributes.length == 1 && attributes[0] != Attribute.Export) {
     throw new LittleFootError(name.location, `Expected 'export' attribute but got '${attributes.join(",")}'`);
+  }
+
+  const genericTypes: IdentifierToken[] = [];
+  if (stream.matchValue("[", true)) {
+    while (stream.matchType(IdentifierToken)) {
+      genericTypes.push(stream.expectType(IdentifierToken));
+      if (!stream.matchValue("]")) stream.expectValue(",");
+    }
+    stream.expectValue("]");
+  }
   stream.expectValue("=");
   const type = parseTypeSpecifier(stream);
-  return new TypeNode(firstToken, name, type, attributes.length == 1 && attributes[0] == Attribute.Export);
+  return new TypeNode(firstToken, name, genericTypes, type, attributes.length == 1 && attributes[0] == Attribute.Export);
 }
 
 function parseTypeSpecifier(stream: TokenStream) {
@@ -240,7 +250,6 @@ function parseFunction(stream: TokenStream, hasName: boolean, attributes: Attrib
   const firstToken = stream.matchValue("func") ? stream.expectValue("func") : stream.expectValue("operator");
   const isOperator = firstToken.value == "operator";
   const name = hasName ? (isOperator ? stream.expectType(OperatorToken) : stream.expectType(IdentifierToken)) : null;
-
   if (hasName == false && attributes.length > 0)
     throw new LittleFootError(firstToken.location, "Function literals can not have attributes like export or external.");
   if (hasName && attributes.length > 3)
@@ -257,7 +266,17 @@ function parseFunction(stream: TokenStream, hasName: boolean, attributes: Attrib
   )
     throw new LittleFootError(name!.location, "Function can only have the attribute export, external, or export and external.");
 
-  const { parameters, returnType, closingParanthesis } = parseFunctionSignature(stream);
+  const genericTypes: IdentifierToken[] = [];
+  if (hasName) {
+    if (stream.matchValue("[", true)) {
+      while (stream.matchType(IdentifierToken)) {
+        genericTypes.push(stream.expectType(IdentifierToken));
+        if (!stream.matchValue("]")) stream.expectValue(",");
+      }
+      stream.expectValue("]");
+    }
+  }
+  const { parameters, returnType } = parseFunctionSignature(stream);
   const code = [];
   let lastLocation: SourceLocation;
   const exported = attributes.find((attribute) => attribute == Attribute.Export);
@@ -271,7 +290,17 @@ function parseFunction(stream: TokenStream, hasName: boolean, attributes: Attrib
     lastLocation = stream.expectValue(";").location;
   }
   if (hasName) {
-    return new FunctionNode(firstToken, name!, parameters, returnType, code, exported !== undefined, external !== undefined, lastLocation);
+    return new FunctionNode(
+      firstToken,
+      name!,
+      genericTypes,
+      parameters,
+      returnType,
+      code,
+      exported !== undefined,
+      external !== undefined,
+      lastLocation
+    );
   } else {
     return new FunctionLiteralNode(firstToken, parameters, returnType, code, lastLocation);
   }
