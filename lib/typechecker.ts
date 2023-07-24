@@ -1229,6 +1229,8 @@ function checkFunctionNode(node: FunctionLiteralNode | FunctionNode, context: Ty
         });
       }
       const returnTypes = returns.map((ret) => ret.type);
+      // FIXME unify the types of the union, so we don't get number | number
+      // if two return statements return a number.
       if (returnTypes.length == 0) returnTypes.push(NothingType);
       const returnType = returnTypes.length == 1 ? returnTypes[0] : new UnionType(returnTypes);
 
