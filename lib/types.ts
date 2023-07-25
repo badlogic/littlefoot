@@ -130,16 +130,17 @@ export class NamedType extends BaseType {
   public constructorFunction: NamedFunctionType | null = null;
   constructor(
     public readonly name: string,
+    public readonly genericTypeNames: string[],
     public type: Type,
     public typeNode: TypeNode,
     public readonly exported: boolean,
     public readonly location: SourceLocation
   ) {
-    super(name);
+    super(name + (genericTypeNames.length > 0 ? "[" + genericTypeNames.join(",") + "]" : ""));
   }
 
   copy(): NamedType {
-    return new NamedType(this.name, this.type.copy(), this.typeNode, this.exported, this.location);
+    return new NamedType(this.name, this.genericTypeNames, this.type.copy(), this.typeNode, this.exported, this.location);
   }
 }
 

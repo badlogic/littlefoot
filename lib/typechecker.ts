@@ -126,7 +126,14 @@ export function checkTypes(context: TypeCheckerContext) {
   const namedTypes = new Array<NamedType>();
   for (const typeNode of namedTypeNodes) {
     try {
-      typeNode.type = new NamedType(typeNode.name.value, UnknownType, typeNode, typeNode.exported, typeNode.location);
+      typeNode.type = new NamedType(
+        typeNode.name.value,
+        typeNode.genericTypeNames.map((genericTypeName) => genericTypeName.value),
+        UnknownType,
+        typeNode,
+        typeNode.exported,
+        typeNode.location
+      );
       const namedType = typeNode.type as NamedType;
       types.add(namedType.name, namedType);
       namedTypes.push(typeNode.type as NamedType);
@@ -368,6 +375,7 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
             genericType.value,
             new NamedType(
               genericType.value,
+              [],
               AnyType,
               new TypeNode(genericType, genericType, [], new TypeReferenceNode(genericType), false),
               false,
@@ -1167,6 +1175,7 @@ function checkFunctionNode(node: FunctionLiteralNode | FunctionNode, context: Ty
         genericType.value,
         new NamedType(
           genericType.value,
+          [],
           AnyType,
           new TypeNode(genericType, genericType, [], new TypeReferenceNode(genericType), false),
           false,
