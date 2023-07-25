@@ -155,12 +155,12 @@ export class NamedFunctionType extends BaseType {
     public readonly external: boolean,
     public readonly location: SourceLocation
   ) {
-    super(name + type.signature);
+    super(name + (genericTypeNames.length > 0 ? "[" + genericTypeNames.join(",") + "]" : "") + type.signature);
   }
 
   updateReturnType() {
     this.type = this.ast.type as FunctionType;
-    this.signature = this.name + this.type.signature;
+    this.signature = this.name + (this.genericTypeNames.length > 0 ? "[" + this.genericTypeNames.join(",") + "]" : "") + this.type.signature;
   }
 
   copy(): NamedFunctionType {
@@ -546,9 +546,9 @@ export function isAssignableTo(from: Type, to: Type): boolean {
   if (from.kind == "function" && to.kind == "function") {
     if (from.parameters.length != to.parameters.length) return false;
     for (let i = 0; i < from.parameters.length; i++) {
-      if (!isEqual(from.parameters[i].type, to.parameters[i].type)) return false;
+      if (!isAssignableTo(from.parameters[i].type, to.parameters[i].type)) return false;
     }
-    if (!isEqual(from.returnType, to.returnType)) return false;
+    if (!isAssignableTo(from.returnType, to.returnType)) return false;
     return true;
   }
 

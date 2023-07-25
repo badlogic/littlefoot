@@ -293,7 +293,7 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
       }
       if (node.returnType) checkNodeTypes(node.returnType, context);
       node.type = new FunctionType(
-        node.parameters.map((parameter) => parameter.type as NameAndType),
+        node.parameters.map((parameter) => new NameAndType(parameter.name.value, parameter.type)),
         node.returnType ? node.returnType.type : NothingType
       );
       break;
@@ -382,7 +382,6 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
         (node.type as NamedType).type = node.typeNode.type;
 
         // Check if all generic types have been used in the type specifier.
-        // FIXME Not strictly necessary, and should probably be a warning.
         let genericTypes = new Set<String>(node.genericTypeNames.map((type) => type.value));
         for (const genericType of node.genericTypeNames) {
           traverseType(node.typeNode.type, (type) => {
@@ -459,10 +458,8 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
             );
           }
 
-          let found = false;
           const alias = importedName.alias ? importedName.alias.value : importedName.name.value;
           if (module.types.lookup.has(importedName.name.value)) {
-            found = true;
             const type = module.types.lookup.get(importedName.name.value)!;
             if (type.kind == "named type") {
               if (type.location.source.path == module.source.path) {
@@ -474,7 +471,6 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
             }
           }
           if (module.functions.has(importedName.name.value)) {
-            found = true;
             const funcs = module.functions.get(importedName.name.value)!;
             for (const func of funcs) {
               if (func.location.source.path == module.source.path && func.exported) {
@@ -483,7 +479,6 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
             }
           }
           if (module.variables.has(importedName.name.value)) {
-            found = true;
             const variable = module.variables.get(importedName.name.value)!;
             context.module.variables.set(alias, variable);
             scopes.add(alias, variable);
@@ -498,6 +493,9 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
     }
     case "function declaration": {
       checkFunctionNode(node, context, true);
+      if (!node.returnType && node.genericTypeNames.length > 0) {
+        throw new LittleFootError(node.name.location, "Generic functions must specify a return type.");
+      }
       const funcs = functions.get(node.name.value);
       if (!funcs) {
         throw new LittleFootError(
@@ -780,69 +778,81 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
           node.type = node.leftExpression.type;
           break;
         case "==":
-        case "!=":
-          if (!isEqual(node.leftExpression.type, node.rightExpression.type)) {
+        case "!=": {
+          const leftType = node.leftExpression.type;
+          const rightType = node.rightExpression.type;
+          if (!(isGeneric(leftType) || isGeneric(rightType) || isEqual(leftType, rightType))) {
             throw new LittleFootError(
               node.location,
-              `Operands of '${node.operator.value}' operator must have the same type, but are '${node.leftExpression.type.signature}' and '${node.rightExpression.type.signature}'.`
+              `Operands of '${node.operator.value}' operator must have the same type, but are '${leftType.signature}' and '${rightType.signature}'.`
             );
           }
           node.type = BooleanType;
           break;
+        }
         case "or":
         case "and":
-        case "xor":
-          if (node.leftExpression.type != BooleanType) {
+        case "xor": {
+          const leftType = node.leftExpression.type;
+          const rightType = node.rightExpression.type;
+          if (!(leftType == BooleanType || isGeneric(leftType))) {
             throw new LittleFootError(
               node.leftExpression.location,
-              `Left operand of '${node.operator.value}' operator must be a boolean, but is a '${node.leftExpression.type.signature}'.`
+              `Left operand of '${node.operator.value}' operator must be a boolean, but is a '${leftType.signature}'.`
             );
           }
-          if (node.rightExpression.type != BooleanType) {
+          if (!(rightType == BooleanType || isGeneric(rightType))) {
             throw new LittleFootError(
               node.rightExpression.location,
-              `Left operand of '${node.operator.value}' operator must be a boolean, but is a '${node.rightExpression.type.signature}'.`
+              `Left operand of '${node.operator.value}' operator must be a boolean, but is a '${rightType.signature}'.`
             );
           }
           node.type = BooleanType;
           break;
+        }
         case "<":
         case "<=":
         case ">":
-        case ">=":
-          if (node.leftExpression.type != NumberType) {
+        case ">=": {
+          const leftType = node.leftExpression.type;
+          const rightType = node.rightExpression.type;
+          if (!(leftType == NumberType || isGeneric(leftType))) {
             throw new LittleFootError(
               node.leftExpression.location,
-              `Left operand of '${node.operator.value}' operator must be a number, but is a '${node.leftExpression.type.signature}'.`
+              `Left operand of '${node.operator.value}' operator must be a number, but is a '${leftType.signature}'.`
             );
           }
-          if (node.rightExpression.type != NumberType) {
+          if (!(rightType == NumberType || isGeneric(rightType))) {
             throw new LittleFootError(
               node.rightExpression.location,
-              `Left operand of '${node.operator.value}' operator must be a number, but is a '${node.rightExpression.type.signature}'.`
+              `Left operand of '${node.operator.value}' operator must be a number, but is a '${rightType.signature}'.`
             );
           }
           node.type = BooleanType;
           break;
+        }
         case "+":
         case "-":
         case "/":
         case "*":
-        case "%":
-          if (node.leftExpression.type != NumberType) {
+        case "%": {
+          const leftType = node.leftExpression.type;
+          const rightType = node.rightExpression.type;
+          if (!(leftType == NumberType || isGeneric(leftType))) {
             throw new LittleFootError(
               node.leftExpression.location,
-              `Left operand of '${node.operator.value}' operator must be a number, but is a '${node.leftExpression.type.signature}'.`
+              `Left operand of '${node.operator.value}' operator must be a number, but is a '${leftType.signature}'.`
             );
           }
-          if (node.rightExpression.type != NumberType) {
+          if (!(rightType == NumberType || isGeneric(rightType))) {
             throw new LittleFootError(
               node.rightExpression.location,
-              `Left operand of '${node.operator.value}' operator must be a number, but is a '${node.rightExpression.type.signature}'.`
+              `Left operand of '${node.operator.value}' operator must be a number, but is a '${rightType.signature}'.`
             );
           }
           node.type = NumberType;
           break;
+        }
         default:
           throw new LittleFootError(node.operator.location, `Unknown operator ${node.operator.value}`);
       }
@@ -851,7 +861,7 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
       checkNodeTypes(node.expression, context);
       switch (node.operator.value) {
         case "not":
-          if (node.expression.type != BooleanType) {
+          if (!(node.expression.type == BooleanType || isGeneric(node.expression.type))) {
             throw new LittleFootError(
               node.expression.location,
               `Operand of 'not' operator must be a boolean, but is a '${node.expression.type.signature}'`
@@ -861,7 +871,7 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
           break;
         case "+":
         case "-":
-          if (node.expression.type != NumberType) {
+          if (!(node.expression.type == NumberType || isGeneric(node.expression.type))) {
             throw new LittleFootError(
               node.expression.location,
               `Operand of '${node.operator.value}' operator must be a number, but is a '${node.expression.type.signature}'`
@@ -1218,6 +1228,18 @@ function checkFunctionNode(node: FunctionLiteralNode | FunctionNode, context: Ty
           return true;
         });
       }
+      if (node.type.kind == "function") {
+        // If we have a function type, we also update the return type.
+        node.type.setReturnType(returnType);
+        return node.type;
+      } else {
+        const functionType = new FunctionType(
+          node.parameters.map((parameter) => new NameAndType(parameter.name.value, parameter.type)),
+          returnType
+        );
+        node.type = functionType;
+        return functionType;
+      }
       return node.type as FunctionType;
     } else {
       // Otherwise gather the types and infere the return type.
@@ -1231,8 +1253,6 @@ function checkFunctionNode(node: FunctionLiteralNode | FunctionNode, context: Ty
         });
       }
       const returnTypes = returns.map((ret) => ret.type);
-      // FIXME unify the types of the union, so we don't get number | number
-      // if two return statements return a number.
       if (returnTypes.length == 0) returnTypes.push(NothingType);
       const returnType = returnTypes.length == 1 ? returnTypes[0] : unify(returnTypes[0], new UnionType(returnTypes));
 
