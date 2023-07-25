@@ -309,7 +309,9 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
       for (const type of node.unionTypes) {
         checkNodeTypes(type, context);
       }
-      node.type = new UnionType(node.unionTypes.map((type) => type.type));
+      let unionType = new UnionType(node.unionTypes.map((type) => type.type));
+      unionType = unify(unionType.types[0], unionType);
+      node.type = unionType.types.length == 1 ? unionType.types[0] : unionType;
       break;
     }
     case "mixin type": {
@@ -1232,7 +1234,7 @@ function checkFunctionNode(node: FunctionLiteralNode | FunctionNode, context: Ty
       // FIXME unify the types of the union, so we don't get number | number
       // if two return statements return a number.
       if (returnTypes.length == 0) returnTypes.push(NothingType);
-      const returnType = returnTypes.length == 1 ? returnTypes[0] : new UnionType(returnTypes);
+      const returnType = returnTypes.length == 1 ? returnTypes[0] : unify(returnTypes[0], new UnionType(returnTypes));
 
       if (node.kind == "function declaration") {
         node.isBeingChecked = false;
