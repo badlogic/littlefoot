@@ -24,7 +24,7 @@ export class PrimitiveType extends BaseType {
   }
 
   copy(): PrimitiveType {
-    return new PrimitiveType(this.name);
+    return this;
   }
 
   updateSignature(): void {
@@ -157,11 +157,13 @@ export class UnionType extends BaseType {
 
 export class NamedType extends BaseType {
   public readonly kind: "named type" = "named type";
+  private updating = false;
 
   public constructorFunction: NamedFunctionType | null = null;
   constructor(
     public readonly name: string,
     public readonly genericTypeNames: string[],
+    public genericTypeBindings: Map<String, Type>,
     public type: Type,
     public typeNode: TypeNode,
     public readonly exported: boolean,
@@ -172,20 +174,39 @@ export class NamedType extends BaseType {
   }
 
   copy(): NamedType {
-    return new NamedType(this.name, this.genericTypeNames, this.type.copy(), this.typeNode, this.exported, this.location);
+    return new NamedType(this.name, this.genericTypeNames, this.genericTypeBindings, this.type.copy(), this.typeNode, this.exported, this.location);
+  }
+
+  updateGenericTypeBindings(genericTypeBindings: Map<String, Type>) {
+    this.genericTypeBindings = genericTypeBindings;
+    this.updateSignature();
   }
 
   updateSignature(): void {
-    this.signature = this.name + (this.genericTypeNames.length > 0 ? "[" + this.genericTypeNames.join(",") + "]" : "");
+    if (this.updating) return;
+    this.updating = true;
+    this.type.updateSignature();
+    if (this.genericTypeBindings.size == 0) {
+      this.signature = this.name + (this.genericTypeNames.length > 0 ? "[" + this.genericTypeNames.join(",") + "]" : "");
+    } else {
+      this.signature =
+        this.name +
+        (this.genericTypeNames.length > 0
+          ? "[" + this.genericTypeNames.map((name) => this.genericTypeBindings.get(name)?.signature).join(",") + "]"
+          : "");
+    }
+    this.updating = false;
   }
 }
 
 export class NamedFunctionType extends BaseType {
   public readonly kind: "named function" = "named function";
+  private updating = false;
 
   constructor(
     public readonly name: string,
     public readonly genericTypeNames: string[],
+    public genericTypeBindings: Map<String, Type>,
     public type: FunctionType,
     public ast: FunctionNode | FunctionLiteralNode,
     public readonly exported: boolean,
@@ -201,12 +222,39 @@ export class NamedFunctionType extends BaseType {
     this.updateSignature();
   }
 
+  updateGenericTypeBindings(genericTypeBindings: Map<String, Type>) {
+    this.genericTypeBindings = genericTypeBindings;
+    this.updateSignature();
+  }
+
   copy(): NamedFunctionType {
-    return new NamedFunctionType(this.name, this.genericTypeNames, this.type.copy(), this.ast, this.exported, this.external, this.location);
+    return new NamedFunctionType(
+      this.name,
+      this.genericTypeNames,
+      this.genericTypeBindings,
+      this.type.copy(),
+      this.ast,
+      this.exported,
+      this.external,
+      this.location
+    );
   }
 
   updateSignature(): void {
-    this.signature = this.name + (this.genericTypeNames.length > 0 ? "[" + this.genericTypeNames.join(",") + "]" : "") + this.type.signature;
+    if (this.updating) return;
+    this.updating = true;
+    this.type.updateSignature();
+    if (this.genericTypeBindings.size == 0) {
+      this.signature = this.name + (this.genericTypeNames.length > 0 ? "[" + this.genericTypeNames.join(",") + "]" : "") + this.type.signature;
+    } else {
+      this.signature =
+        this.name +
+        (this.genericTypeNames.length > 0
+          ? "[" + this.genericTypeNames.map((name) => this.genericTypeBindings.get(name)?.signature).join(",") + "]"
+          : "") +
+        this.type.signature;
+    }
+    this.updating = false;
   }
 }
 

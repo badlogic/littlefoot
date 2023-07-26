@@ -173,7 +173,16 @@ function parseTypeSpecifier(stream: TokenStream) {
   const operators: OperatorToken[] = [];
   do {
     if (stream.matchType(IdentifierToken) || stream.matchType(NothingToken)) {
-      types.push(new TypeNameNode(stream.next()));
+      const name = stream.next();
+      const genericTypes: TypeSpecifierNode[] = [];
+      if (stream.matchValue("[", true)) {
+        while (stream.hasMore() && !stream.matchValue("]")) {
+          genericTypes.push(parseTypeSpecifier(stream));
+          if (!stream.matchValue("]")) stream.expectValue(",");
+        }
+        stream.expectValue("]");
+      }
+      types.push(new TypeNameNode(name, genericTypes));
     } else if (stream.matchValue("[")) {
       types.push(new ListTypeNode(stream.expectValue("["), parseTypeSpecifier(stream), stream.expectValue("]")));
     } else if (stream.matchValue("{")) {

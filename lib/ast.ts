@@ -1,7 +1,7 @@
 import { Attribute } from "./parser";
 import { SourceLocation } from "./source";
 import { BoolToken, IdentifierToken, NothingToken, NumberToken, OperatorToken, StringToken, Token } from "./tokenizer";
-import { NameAndType, NamedType, Type, UnknownType } from "./types";
+import { NameAndType, NamedType, Type, Types, UnknownType } from "./types";
 
 export type AstNode = ImportNode | ImportedNameNode | InternalNode | TopLevelNode;
 
@@ -51,7 +51,7 @@ export abstract class BaseAstNode {
 
 export class TypeReferenceNode extends BaseAstNode {
   public readonly kind: "type reference" = "type reference";
-  constructor(public readonly name: IdentifierToken) {
+  constructor(public readonly name: IdentifierToken, public readonly genericTypes: TypeSpecifierNode[]) {
     super(name.location);
   }
 }
