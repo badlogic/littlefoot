@@ -4,9 +4,11 @@ import { SourceLocation } from "./source";
 
 export abstract class BaseType {
   public abstract kind: string;
-  constructor(public signature: string) {}
+  public signature: string = "";
 
   abstract copy(): Type;
+
+  abstract updateSignature(): void;
 }
 
 export class NameAndType {
@@ -17,11 +19,16 @@ export class PrimitiveType extends BaseType {
   public readonly kind: "primitive" = "primitive";
 
   constructor(public readonly name: string) {
-    super(name);
+    super();
+    this.updateSignature();
   }
 
   copy(): PrimitiveType {
     return new PrimitiveType(this.name);
+  }
+
+  updateSignature(): void {
+    this.signature = this.name;
   }
 }
 
@@ -29,16 +36,22 @@ export class ListType extends BaseType {
   public readonly kind: "list" = "list";
 
   constructor(public elementType: Type) {
-    super("[" + elementType.signature + "]");
+    super();
+    this.updateSignature();
   }
 
   setElementType(elementType: Type) {
     this.elementType = elementType;
-    this.signature = "[" + elementType.signature + "]";
+    this.updateSignature();
   }
 
   copy(): ListType {
     return new ListType(this.elementType.copy());
+  }
+
+  updateSignature(): void {
+    this.elementType.updateSignature();
+    this.signature = "[" + this.elementType.signature + "]";
   }
 }
 
@@ -46,16 +59,22 @@ export class MapType extends BaseType {
   public readonly kind: "map" = "map";
 
   constructor(public valueType: Type) {
-    super("{" + valueType.signature + "}");
+    super();
+    this.updateSignature();
   }
 
   setValueType(valueType: Type) {
     this.valueType = valueType;
-    this.signature = "{" + valueType.signature + "}";
+    this.updateSignature();
   }
 
   copy(): MapType {
     return new MapType(this.valueType.copy());
+  }
+
+  updateSignature(): void {
+    this.valueType.updateSignature();
+    this.signature = "{" + this.valueType.signature + "}";
   }
 }
 
@@ -63,18 +82,19 @@ export class RecordType extends BaseType {
   public readonly kind: "record" = "record";
 
   constructor(public readonly fields: NameAndType[]) {
-    super(
-      "<" +
-        fields
-          .map((field) => field.name + ":" + field.type.signature)
-          .sort()
-          .join(",") +
-        ">"
-    );
+    super();
     fields.sort(); // needed for equality and assignability checks
+    this.updateSignature();
+  }
+
+  copy(): RecordType {
+    return new RecordType(this.fields.map((field) => new NameAndType(field.name, field.type.copy())));
   }
 
   updateSignature() {
+    for (const field of this.fields) {
+      field.type.updateSignature();
+    }
     this.signature =
       "<" +
       this.fields
@@ -83,27 +103,32 @@ export class RecordType extends BaseType {
         .join(",") +
       ">";
   }
-
-  copy(): RecordType {
-    return new RecordType(this.fields.map((field) => new NameAndType(field.name, field.type.copy())));
-  }
 }
 
 export class FunctionType extends BaseType {
   public readonly kind: "function" = "function";
 
   constructor(public readonly parameters: NameAndType[], public returnType: Type) {
-    super("(" + parameters.map((param) => param.type.signature).join(",") + "):" + returnType.signature);
+    super();
+    this.updateSignature();
   }
 
   setReturnType(returnType: Type) {
     this.returnType = returnType;
-    this.signature = "(" + this.parameters.map((param) => param.type.signature).join(",") + "):" + returnType.signature;
+    this.updateSignature();
   }
 
   copy(): FunctionType {
     const paramsCopy = this.parameters.map((param) => new NameAndType(param.name, param.type.copy()));
     return new FunctionType(paramsCopy, this.returnType.copy());
+  }
+
+  updateSignature(): void {
+    for (const parameter of this.parameters) {
+      parameter.type.updateSignature();
+    }
+    this.returnType.updateSignature();
+    this.signature = "(" + this.parameters.map((param) => param.type.signature).join(",") + "):" + this.returnType.signature;
   }
 }
 
@@ -111,16 +136,22 @@ export class UnionType extends BaseType {
   public readonly kind: "union" = "union";
 
   constructor(public readonly types: Type[]) {
-    super(
-      types
-        .map((type) => type.signature)
-        .sort()
-        .join("|")
-    );
+    super();
+    this.updateSignature();
   }
 
   copy(): UnionType {
     return new UnionType(this.types.map((type) => type.copy()));
+  }
+
+  updateSignature(): void {
+    for (const type of this.types) {
+      type.updateSignature();
+    }
+    this.signature = this.types
+      .map((type) => type.signature)
+      .sort()
+      .join("|");
   }
 }
 
@@ -136,11 +167,16 @@ export class NamedType extends BaseType {
     public readonly exported: boolean,
     public readonly location: SourceLocation
   ) {
-    super(name + (genericTypeNames.length > 0 ? "[" + genericTypeNames.join(",") + "]" : ""));
+    super();
+    this.updateSignature();
   }
 
   copy(): NamedType {
     return new NamedType(this.name, this.genericTypeNames, this.type.copy(), this.typeNode, this.exported, this.location);
+  }
+
+  updateSignature(): void {
+    this.signature = this.name + (this.genericTypeNames.length > 0 ? "[" + this.genericTypeNames.join(",") + "]" : "");
   }
 }
 
@@ -156,16 +192,21 @@ export class NamedFunctionType extends BaseType {
     public readonly external: boolean,
     public readonly location: SourceLocation
   ) {
-    super(name + (genericTypeNames.length > 0 ? "[" + genericTypeNames.join(",") + "]" : "") + type.signature);
+    super();
+    this.updateSignature();
   }
 
   updateReturnType() {
     this.type = this.ast.type as FunctionType;
-    this.signature = this.name + (this.genericTypeNames.length > 0 ? "[" + this.genericTypeNames.join(",") + "]" : "") + this.type.signature;
+    this.updateSignature();
   }
 
   copy(): NamedFunctionType {
     return new NamedFunctionType(this.name, this.genericTypeNames, this.type.copy(), this.ast, this.exported, this.external, this.location);
+  }
+
+  updateSignature(): void {
+    this.signature = this.name + (this.genericTypeNames.length > 0 ? "[" + this.genericTypeNames.join(",") + "]" : "") + this.type.signature;
   }
 }
 

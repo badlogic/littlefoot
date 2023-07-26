@@ -14,9 +14,7 @@ const editor = new Editor(
     localStorage.setItem("source", editor.value);
     compileText(editor.value);
   },
-  (start, end) => {
-    console.log(`Selection: ${start}-${end}`);
-  }
+  (start, end) => {}
 );
 
 const stored = localStorage.getItem("source");

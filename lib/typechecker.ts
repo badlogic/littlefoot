@@ -539,6 +539,11 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
             new LittleFootError(node.initializer.location, `Can not assign a '${node.initializer.type.signature}' to a '${node.type.signature}'.`)
           );
         }
+        // FIXME if typeNode is a generic type, infer type parameters from initializer.
+        if (node.typeNode.type.kind == "named type" && node.typeNode.type.genericTypeNames.length > 0) {
+          instantiateGenericType(node.typeNode, node.typeNode.type.type, node.initializer, node.initializer.type, context);
+        }
+        node.type = node.typeNode.type;
       } else {
         if (node.initializer.kind == "list literal" && node.initializer.elements.length == 0) {
           if (!node.initializer.typeNode) {
@@ -1086,6 +1091,7 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
           node.type = closestFunc[0].type.returnType;
         }
       } else {
+        // Function call on function returned through map or list element access.
         checkNodeTypes(node.target, context);
         if (node.target.type.kind != "function") {
           throw new LittleFootError(node.target.location, `Target of function call is not a function but a ${node.target.type.signature}.`);
@@ -1154,6 +1160,10 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
             .join("\n")}`
         );
       }
+
+      // FIXME if the function has generic parameters, bind them to the
+      // types of the arguments, make a copy of the function AST, recheck the AST, and add the
+      // instantiated function to the known functions.
       node.target.type = closestFunc[0];
       node.type = closestFunc[0].type.returnType;
       break;
@@ -1411,7 +1421,7 @@ function inferTypesOfEmptyListAndMapLiterals(from: AstNode, to: Type): boolean {
           throw new LittleFootError(
             from.location,
             `Can not infer type for empty map literal from target type ${to.signature}. Candidates:\n${mapTypes
-              .map((type) => type.signature)
+              .map((type) => "\t" + type.signature)
               .join("\n")}`
           );
         }
@@ -1512,7 +1522,7 @@ function expandLiteralValueTypesToUnions(from: AstNode, to: Type) {
                 throw new LittleFootError(
                   from.location,
                   `Must expand type ${from.type.signature} to a type in union ${toType.elementType.signature}, but multiple candidates were found. Candidates:\n` +
-                    candidates.map((type) => type.signature).join("\n")
+                    candidates.map((type) => "\t" + type.signature).join("\n")
                 );
               }
             }
@@ -1676,7 +1686,7 @@ function expandLiteralValueTypesToUnions(from: AstNode, to: Type) {
           throw new LittleFootError(
             from.location,
             `Must expand type ${from.type.signature} to a type in union ${to.signature}, but multiple candidates were found. Candidates:\n` +
-              candidates.map((type) => type.signature).join("\n")
+              candidates.map((type) => "\t" + type.signature).join("\n")
           );
         }
       }
@@ -1812,6 +1822,207 @@ function isGeneric(type: Type) {
     return true;
   });
   return found;
+}
+
+function instantiateGenericType(genericNode: AstNode, genericType: Type, concreteNode: AstNode, concreteType: Type, context: TypeCheckerContext) {
+  // Infer the generic type parameters from the concrete type(s). This is a simultanious
+  // traversal of the generic type and conrecte type tree. If a generic type is encountered in the
+  // generic tree, its concrete type counter part is recorded as a binding.
+  const infer = (node: AstNode, genericType: Type, concreteType: Type, genericTypeBindings: Map<String, Type[]>) => {
+    if (genericType.kind == "named type" && genericType.type == AnyType) {
+      let bindings = genericTypeBindings.get(genericType.name);
+      if (!bindings) {
+        bindings = [];
+        genericTypeBindings.set(genericType.name, bindings);
+      }
+      bindings.push(concreteType);
+      return;
+    }
+
+    switch (genericType.kind) {
+      case "function":
+        if (concreteType.kind == "function") {
+          for (let i = 0; i < genericType.parameters.length; i++) {
+            infer(node, genericType.parameters[i].type, concreteType.parameters[i].type, genericTypeBindings);
+          }
+          infer(node, genericType.returnType, concreteType.returnType, genericTypeBindings);
+        } else {
+          throw new LittleFootError(
+            node.location,
+            `Internal error: generic type ${genericType.signature} != concrete type ${concreteType.signature}.`
+          );
+        }
+        break;
+      case "primitive":
+        // leaf in type which can not be a generic type
+        break;
+      case "list":
+        if (concreteType.kind == "list") {
+          infer(node, genericType.elementType, concreteType.elementType, genericTypeBindings);
+        } else {
+          throw new LittleFootError(
+            node.location,
+            `Internal error: generic type ${genericType.signature} != concrete type ${concreteType.signature}.`
+          );
+        }
+        break;
+      case "map":
+        if (concreteType.kind == "map") {
+          infer(node, genericType.valueType, concreteType.valueType, genericTypeBindings);
+        } else {
+          throw new LittleFootError(
+            node.location,
+            `Internal error: generic type ${genericType.signature} != concrete type ${concreteType.signature}.`
+          );
+        }
+        break;
+      case "record":
+        if (concreteType.kind == "record") {
+          for (let i = 0; i < genericType.fields.length; i++) {
+            infer(node, genericType.fields[i].type, concreteType.fields[i].type, genericTypeBindings);
+          }
+        } else {
+          throw new LittleFootError(
+            node.location,
+            `Internal error: generic type ${genericType.signature} != concrete type ${concreteType.signature}.`
+          );
+        }
+        break;
+      case "union":
+        if (concreteType.kind == "union") {
+          for (let i = 0; i < genericType.types.length; i++) {
+            infer(node, genericType.types[i], concreteType.types[i], genericTypeBindings);
+          }
+        } else {
+          throw new LittleFootError(
+            node.location,
+            `Internal error: generic type ${genericType.signature} != concrete type ${concreteType.signature}.`
+          );
+        }
+        break;
+      case "named type":
+        // leaf in type which can not be a generic type
+        // FIXME could have element types/value types/field types which are themselves generic, how would syntax look?
+        break;
+      case "named function":
+        // leaf in type which can not be a generic type
+        break;
+      default:
+        assertNever(genericType);
+    }
+  };
+  const genericTypeBindings = new Map<String, Type[]>();
+  infer(genericNode, genericType, concreteType, genericTypeBindings);
+
+  // For each generic type, merge its found bindings and check
+  // if there's only 1 binding left after the merge. Set that
+  // binding as the final type of the generic type.
+  for (const genericTypeName of genericTypeBindings.keys()) {
+    const bindings = genericTypeBindings.get(genericTypeName)!;
+    const seenSignatures = new Set<string>();
+    const unifiedBindings: Type[] = [];
+    for (const binding of bindings) {
+      if (!seenSignatures.has(binding.signature)) {
+        seenSignatures.add(binding.signature);
+        unifiedBindings.push(binding);
+      }
+    }
+    if (unifiedBindings.length > 1) {
+      throw new LittleFootError(
+        concreteNode.location,
+        `Found multiple possibilities for generic type parameter ${genericTypeName} of generic type ${
+          genericType.signature
+        }. Candidates:\n${unifiedBindings.map((type) => "\t" + type.signature).join("\n")}`
+      );
+    }
+    genericTypeBindings.set(genericTypeName, unifiedBindings);
+  }
+
+  // Construct a type with the bindings
+  const genericBoundType = genericType.copy();
+  const replace = (node: AstNode, genericType: Type, concreteType: Type, genericTypeBindings: Map<String, Type[]>) => {
+    if (genericType.kind == "named type" && genericType.type == AnyType) {
+      let bindings = genericTypeBindings.get(genericType.name);
+      if (!bindings) {
+        bindings = [];
+        genericTypeBindings.set(genericType.name, bindings);
+      }
+      bindings.push(concreteType);
+      return;
+    }
+
+    switch (genericType.kind) {
+      case "function":
+        if (concreteType.kind == "function") {
+          for (let i = 0; i < genericType.parameters.length; i++) {
+            infer(node, genericType.parameters[i].type, concreteType.parameters[i].type, genericTypeBindings);
+          }
+          infer(node, genericType.returnType, concreteType.returnType, genericTypeBindings);
+        } else {
+          throw new LittleFootError(
+            node.location,
+            `Internal error: generic type ${genericType.signature} != concrete type ${concreteType.signature}.`
+          );
+        }
+        break;
+      case "primitive":
+        // leaf in type which can not be a generic type
+        break;
+      case "list":
+        if (concreteType.kind == "list") {
+          infer(node, genericType.elementType, concreteType.elementType, genericTypeBindings);
+        } else {
+          throw new LittleFootError(
+            node.location,
+            `Internal error: generic type ${genericType.signature} != concrete type ${concreteType.signature}.`
+          );
+        }
+        break;
+      case "map":
+        if (concreteType.kind == "map") {
+          infer(node, genericType.valueType, concreteType.valueType, genericTypeBindings);
+        } else {
+          throw new LittleFootError(
+            node.location,
+            `Internal error: generic type ${genericType.signature} != concrete type ${concreteType.signature}.`
+          );
+        }
+        break;
+      case "record":
+        if (concreteType.kind == "record") {
+          for (let i = 0; i < genericType.fields.length; i++) {
+            infer(node, genericType.fields[i].type, concreteType.fields[i].type, genericTypeBindings);
+          }
+        } else {
+          throw new LittleFootError(
+            node.location,
+            `Internal error: generic type ${genericType.signature} != concrete type ${concreteType.signature}.`
+          );
+        }
+        break;
+      case "union":
+        if (concreteType.kind == "union") {
+          for (let i = 0; i < genericType.types.length; i++) {
+            infer(node, genericType.types[i], concreteType.types[i], genericTypeBindings);
+          }
+        } else {
+          throw new LittleFootError(
+            node.location,
+            `Internal error: generic type ${genericType.signature} != concrete type ${concreteType.signature}.`
+          );
+        }
+        break;
+      case "named type":
+        // leaf in type which can not be a generic type
+        // FIXME could have element types/value types/field types which are themselves generic, how would syntax look?
+        break;
+      case "named function":
+        // leaf in type which can not be a generic type
+        break;
+      default:
+        assertNever(genericType);
+    }
+  };
 }
 
 function unify(a: Type, union: UnionType) {
