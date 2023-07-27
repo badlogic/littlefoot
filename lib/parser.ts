@@ -301,15 +301,14 @@ function parseFunction(stream: TokenStream, hasName: boolean, attributes: Attrib
   }
   if (hasName) {
     return new FunctionNode(
-      firstToken,
+      SourceLocation.from(firstToken.location, lastLocation),
       name!,
       genericTypes,
       parameters,
       returnType,
       code,
       exported !== undefined,
-      external !== undefined,
-      lastLocation
+      external !== undefined
     );
   } else {
     return new FunctionLiteralNode(firstToken, parameters, returnType, code, lastLocation);

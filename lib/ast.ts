@@ -143,7 +143,7 @@ export class ImportNode extends BaseAstNode {
 export class FunctionNode extends BaseAstNode {
   public readonly kind: "function declaration" = "function declaration";
   constructor(
-    firstToken: Token,
+    public readonly location: SourceLocation,
     public readonly name: IdentifierToken,
     public readonly genericTypeNames: IdentifierToken[],
     public readonly parameters: NameAndTypeNode[],
@@ -151,10 +151,9 @@ export class FunctionNode extends BaseAstNode {
     public readonly code: StatementNode[],
     public readonly exported: boolean,
     public readonly external: boolean,
-    lastLocation: SourceLocation,
     public isBeingChecked = false
   ) {
-    super(SourceLocation.from(firstToken.location, lastLocation));
+    super(location);
   }
 }
 
