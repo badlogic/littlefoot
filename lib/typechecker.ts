@@ -623,7 +623,7 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
         }
         const variable = scopes.get((operator.isOperator.leftExpression as VariableAccessNode).name.value)!;
         const variableType = (operator.oldType = variable.type);
-        if (variableType.kind != "union") {
+        if (!(variableType.kind == "union" || isGeneric(variableType))) {
           throw new LittleFootError(operator.isOperator.leftExpression.location, "Variable type must be a union.");
         }
         const narrowedType = operator.isOperator.typeNode.type;
@@ -634,7 +634,7 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
           );
         }
 
-        if (operator.isNegated) {
+        if (operator.isNegated && variableType.kind == "union") {
           const newTypes = variableType.types.filter((type) => !isAssignableTo(variable, narrowedType));
           if (newTypes.length == 0) {
             throw new LittleFootError(operator.isOperator.location, `Negation of 'is' operator results in empty type set.`); // TODO better message
