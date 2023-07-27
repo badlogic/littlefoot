@@ -175,14 +175,15 @@ function parseTypeSpecifier(stream: TokenStream) {
     if (stream.matchType(IdentifierToken) || stream.matchType(NothingToken)) {
       const name = stream.next();
       const genericTypes: TypeSpecifierNode[] = [];
+      let closingBracket: OperatorToken | null = null;
       if (stream.matchValue("[", true)) {
         while (stream.hasMore() && !stream.matchValue("]")) {
           genericTypes.push(parseTypeSpecifier(stream));
           if (!stream.matchValue("]")) stream.expectValue(",");
         }
-        stream.expectValue("]");
+        closingBracket = stream.expectValue("]");
       }
-      types.push(new TypeReferenceNode(name, genericTypes));
+      types.push(new TypeReferenceNode(name, genericTypes, closingBracket));
     } else if (stream.matchValue("[")) {
       types.push(new ListTypeNode(stream.expectValue("["), parseTypeSpecifier(stream), stream.expectValue("]")));
     } else if (stream.matchValue("{")) {

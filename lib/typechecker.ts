@@ -172,9 +172,22 @@ export function checkTypes(context: TypeCheckerContext) {
   for (let i = 0; i < namedTypes.length; i++) {
     const typeNode = namedTypeNodes[i];
     const type = namedTypes[i];
-    if (type.type.kind == "record") {
+    let actualType = type;
+
+    // The type might be a specialization of another named type, e.g.
+    //
+    // type a[T, U] = <a: T, b: U>
+    // type b[T] = a[T, number]
+    //
+    // Follow the named type chain and check if it ends in a record.
+    // If so, create a constructor function.
+    while (actualType.type.kind == "named type") {
+      actualType = actualType.type;
+    }
+
+    if (actualType.type.kind == "record") {
       // Generate constructor function for named record.
-      const funcType = new FunctionType(type.type.fields, type);
+      const funcType = new FunctionType(actualType.type.fields, type);
       type.constructorFunction = new NamedFunctionType(
         type.name,
         typeNode.genericTypeNames.map((type) => type.value),
@@ -409,7 +422,8 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
               [],
               new Map<String, Type>(),
               AnyType,
-              new TypeNode(genericType, genericType, [], new TypeReferenceNode(genericType, []), false),
+              // FIXME last parameter of TypeReferenceNode should not be null
+              new TypeNode(genericType, genericType, [], new TypeReferenceNode(genericType, [], null), false),
               false,
               genericType.location
             )
@@ -1241,7 +1255,8 @@ function checkFunctionNode(node: FunctionLiteralNode | FunctionNode, context: Ty
           [],
           new Map<String, Type>(),
           AnyType,
-          new TypeNode(genericType, genericType, [], new TypeReferenceNode(genericType, []), false),
+          // FIXME last parameter of TypeReferenceNode should not be null
+          new TypeNode(genericType, genericType, [], new TypeReferenceNode(genericType, [], null), false),
           false,
           genericType.location
         )
