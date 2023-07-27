@@ -355,17 +355,41 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
       break;
     }
     case "type reference": {
-      // FIXME instantiate concrete generic types if node has genericTypes.length > 1
       if (!types.has(node.name.value) && !genericBindings.has(node.name.value)) {
         throw new LittleFootError(node.location, `Could not find type '${node.name.value}'.`);
       }
       // Look for the type in the generic bindings first.
-      const type = (genericBindings.has(node.name.value) ? genericBindings.get(node.name.value)! : types.get(node.name.value)) as NamedType;
+      let type = (genericBindings.has(node.name.value) ? genericBindings.get(node.name.value)! : types.get(node.name.value)) as NamedType;
+
       // If we are in the type resolution phase, we might encounter types
       // that haven't been resolved yet in other type declarations. Resolve
       // them here.
       if (type.type == UnknownType) {
         checkNodeTypes(type.typeNode, context);
+      }
+
+      if (type.kind == "named type" && type.genericTypeNames.length == 0 && node.genericTypeBindings.length > 0) {
+        throw new LittleFootError(node.location, `Type ${node.name.value} is not a generic type, but generic type arguments were given.`);
+      }
+
+      // If this reference is generic and has bindings, instantiate the new type.
+      if (type.kind == "named type" && type.genericTypeNames.length > 0 && node.genericTypeBindings.length > 0) {
+        if (node.genericTypeBindings.length != type.genericTypeNames.length) {
+          throw new LittleFootError(
+            node.location,
+            `Not enough generic type parameters given, expected ${type.genericTypeNames.length}, got ${node.genericTypeBindings.length}`
+          );
+        }
+        // Make sure the generic type bindings are resolved and generate the bindings
+        // to be used by instantiation.
+        const bindings = new Map<String, Type>();
+        for (let i = 0; i < node.genericTypeBindings.length; i++) {
+          const genericTypeBinding = node.genericTypeBindings[i];
+          checkNodeTypes(genericTypeBinding, context);
+          bindings.set(type.genericTypeNames[i], genericTypeBinding.type);
+        }
+
+        type = instantiateGenericType(type, bindings, context);
       }
       node.type = type;
       break;
@@ -548,9 +572,11 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
           );
         }
 
-        // FIXME only infer if no bindings are given. Requires split inference and instantion of generic types
         if (node.typeNode.type.kind == "named type" && node.typeNode.type.genericTypeNames.length > 0) {
-          node.typeNode.type = instantiateGenericType(node.typeNode, node.typeNode.type, node.initializer, node.initializer.type, context);
+          if (node.typeNode.type.genericTypeBindings.size == 0) {
+            const genericTypeBindings = inferGenericTypes(node.typeNode, node.typeNode.type, node.initializer, node.initializer.type);
+            node.typeNode.type = instantiateGenericType(node.typeNode.type, genericTypeBindings, context);
+          }
         }
         node.type = node.typeNode.type;
       } else {
@@ -910,11 +936,27 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
       // done in the "if" case above.
       checkNodeTypes(node.leftExpression, context);
       checkNodeTypes(node.typeNode, context);
+      // FIXME would an uninstantiated generic type be useful for is?
+      if (
+        node.typeNode.type.kind == "named type" &&
+        node.typeNode.type.genericTypeNames.length > 0 &&
+        node.typeNode.type.genericTypeBindings.size == 0
+      ) {
+        throw new LittleFootError(node.typeNode.location, `Must specify generic type arguments when using a generic type with 'as' operator.`);
+      }
       node.type = BooleanType;
       break;
     case "as operator":
       checkNodeTypes(node.leftExpression, context);
       checkNodeTypes(node.typeNode, context);
+      // FIXME would an uninstantiated generic type be useful for as?
+      if (
+        node.typeNode.type.kind == "named type" &&
+        node.typeNode.type.genericTypeNames.length > 0 &&
+        node.typeNode.type.genericTypeBindings.size == 0
+      ) {
+        throw new LittleFootError(node.typeNode.location, `Must specify generic type arguments when using a generic type with 'as' operator.`);
+      }
       if (!isAssignableTo(node.leftExpression, node.typeNode.type)) {
         throw new LittleFootError(
           node.leftExpression.location,
@@ -1188,6 +1230,8 @@ function checkFunctionNode(node: FunctionLiteralNode | FunctionNode, context: Ty
     }
     node.isBeingChecked = true;
 
+    // FIXME if the node has genericTypeBindings, use those instead. Happens
+    // when instantiated generic functions are typed checked.
     context.genericBindings.clear();
     for (const genericType of node.genericTypeNames) {
       context.genericBindings.set(
@@ -1834,14 +1878,7 @@ function isGeneric(type: Type) {
   return found;
 }
 
-// FIXME split this up into inference and instantiation
-function instantiateGenericType(
-  genericNode: AstNode,
-  genericType: NamedType,
-  concreteNode: AstNode,
-  concreteType: Type,
-  context: TypeCheckerContext
-) {
+function inferGenericTypes(genericNode: AstNode, genericType: NamedType, concreteNode: AstNode, concreteType: Type) {
   // Infer the generic type parameters from the concrete type(s). This is a simultanious
   // traversal of the generic type and conrecte type tree. If a generic type is encountered in the
   // generic tree, its concrete type counter part is recorded as a binding.
@@ -1955,7 +1992,10 @@ function instantiateGenericType(
     }
     finalBindings.set(genericTypeName, unifiedBindings[0]);
   }
+  return finalBindings;
+}
 
+function instantiateGenericType(genericType: NamedType, genericTypeBindings: Map<String, Type>, context: TypeCheckerContext) {
   // Construct a type with the bindings
   let genericBoundType = genericType.copy();
   const replace = (type: Type, bindings: Map<String, Type>): Type => {
@@ -2002,10 +2042,10 @@ function instantiateGenericType(
     }
     return type;
   };
-  genericBoundType = replace(genericBoundType, finalBindings) as NamedType;
-  genericBoundType.updateGenericTypeBindings(finalBindings);
+  genericBoundType = replace(genericBoundType, genericTypeBindings) as NamedType;
+  genericBoundType.updateGenericTypeBindings(genericTypeBindings);
   if (context.module.types.has(genericBoundType.signature)) {
-    return context.module.types.get(genericBoundType.signature)!;
+    return context.module.types.get(genericBoundType.signature) as NamedType;
   } else {
     context.module.types.add(genericBoundType.signature, genericBoundType);
     return genericBoundType;

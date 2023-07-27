@@ -51,7 +51,7 @@ export abstract class BaseAstNode {
 
 export class TypeReferenceNode extends BaseAstNode {
   public readonly kind: "type reference" = "type reference";
-  constructor(public readonly name: IdentifierToken, public readonly genericTypes: TypeSpecifierNode[]) {
+  constructor(public readonly name: IdentifierToken, public readonly genericTypeBindings: TypeSpecifierNode[]) {
     super(name.location);
   }
 }

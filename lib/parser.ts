@@ -2,7 +2,7 @@ import { LittleFootError } from "./error";
 // prettier-ignore
 import { tokenize, TokenStream, IdentifierToken, StringToken, NumberToken, NothingToken, RecordOpeningToken, OperatorToken } from "./tokenizer";
 // prettier-ignore
-import { ListLiteralNode, ListTypeNode, BinaryOperatorNode, BooleanLiteralNode, DoNode, ExpressionNode, ForEachNode, ForNode, FunctionCallNode, FunctionLiteralNode, FunctionNode, FunctionTypeNode, IfNode, IsOperatorNode, MapLiteralNode, MapOrListAccessNode, MapTypeNode, MemberAccessNode, MethodCallNode, NameAndTypeNode, NothingLiteralNode, NumberLiteralNode, StatementNode, StringLiteralNode, TernaryOperatorNode, TypeSpecifierNode, UnaryOperatorNode, VariableAccessNode, VariableNode, WhileNode, RecordTypeNode, RecordLiteralNode, ContinueNode, BreakNode, ReturnNode, TypeNode, TypeReferenceNode as TypeNameNode, AstNode, MixinTypeNode, UnionTypeNode, ImportNode, ImportedNameNode, LoopVariable, AsOperatorNode } from "./ast";
+import { ListLiteralNode, ListTypeNode, BinaryOperatorNode, BooleanLiteralNode, DoNode, ExpressionNode, ForEachNode, ForNode, FunctionCallNode, FunctionLiteralNode, FunctionNode, FunctionTypeNode, IfNode, IsOperatorNode, MapLiteralNode, MapOrListAccessNode, MapTypeNode, MemberAccessNode, MethodCallNode, NameAndTypeNode, NothingLiteralNode, NumberLiteralNode, StatementNode, StringLiteralNode, TernaryOperatorNode, TypeSpecifierNode, UnaryOperatorNode, VariableAccessNode, VariableNode, WhileNode, RecordTypeNode, RecordLiteralNode, ContinueNode, BreakNode, ReturnNode, TypeNode, AstNode, MixinTypeNode, UnionTypeNode, ImportNode, ImportedNameNode, LoopVariable, AsOperatorNode, TypeReferenceNode } from "./ast";
 import { Source, SourceLocation } from "./source";
 
 export enum Attribute {
@@ -182,7 +182,7 @@ function parseTypeSpecifier(stream: TokenStream) {
         }
         stream.expectValue("]");
       }
-      types.push(new TypeNameNode(name, genericTypes));
+      types.push(new TypeReferenceNode(name, genericTypes));
     } else if (stream.matchValue("[")) {
       types.push(new ListTypeNode(stream.expectValue("["), parseTypeSpecifier(stream), stream.expectValue("]")));
     } else if (stream.matchValue("{")) {
