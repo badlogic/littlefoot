@@ -33,11 +33,9 @@ describe("Typechecker tests", () => {
       end
     end
 
-    external func push[T](list: [T], element: T): nothing;
-
     func map[I, O](list: [I], f: (element: I, index: number): O): [O]
       const result: [O] = []
-      for index from 0 to list.length do
+      for index from 0 to list.length() do
         push(result, f(list[index], index))
       end
       return result
@@ -45,7 +43,7 @@ describe("Typechecker tests", () => {
 
     func filter[T](list: [T], f: (element: T, index: number): boolean): [T]
       const result: [T] = []
-      for index from 0 to list.length do
+      for index from 0 to list.length() do
         if (f(list[index], index)) then
           push(result, list[index])
         end
@@ -164,7 +162,7 @@ describe("Typechecker tests", () => {
         for each x in xs do
           sum = sum + x.x
         end
-        for i from 0 to xs.length step 1 do
+        for i from 0 to xs.length() step 1 do
           sum = sum + xs[i].x
         end
         return sum
@@ -221,6 +219,13 @@ describe("Typechecker tests", () => {
 
       f(n)
       f([0])
+      type s[T] = <a: T, b: [T]>
+
+      func s[T](a: T): s[T]
+        return s(a, [a])
+      end
+
+      var ss = s(0)
     `);
     expect(errors.length).toBe(0);
   });

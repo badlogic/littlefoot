@@ -2,6 +2,7 @@ import { AstNode, FunctionLiteralNode, StatementNode, VariableNode } from "./ast
 import { LittleFootError } from "./error";
 import { parse } from "./parser";
 import { Source, SourceLoader, SourceLocation } from "./source";
+import { standardLibSource } from "./stdlib";
 import { IdentifierToken } from "./tokenizer";
 import { TypeCheckerContext, checkTypes } from "./typechecker";
 import { FunctionType, Functions, NamedFunctionType, NothingType, Types } from "./types";
@@ -33,8 +34,22 @@ export class CompilerContext {
   }
 }
 
+class StandardLibSourceLoader implements SourceLoader {
+  constructor(public readonly loader: SourceLoader) {}
+
+  load(path: string): Source | null {
+    if (path == "stdlib.lf") {
+      return new Source("stdlib.lf", standardLibSource);
+    } else {
+      return this.loader.load(path);
+    }
+  }
+}
+
 export function compile(path: string, sourceLoader: SourceLoader) {
-  const context = new CompilerContext(sourceLoader);
+  const loaderWrapper = new StandardLibSourceLoader(sourceLoader);
+  const context = new CompilerContext(loaderWrapper);
+  compileModule("stdlib", context);
   compileModule(path, context);
   return context;
 }

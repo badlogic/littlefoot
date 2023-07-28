@@ -51,6 +51,10 @@ export class SourceLocation {
     return `${this.source.path}:${this.lines[0].index}`;
   }
 
+  equals(other: SourceLocation) {
+    return other.source.path == this.source.path && other.start == this.start && other.end == this.end;
+  }
+
   static from(loc1: SourceLocation, loc2: SourceLocation) {
     if (loc1.source != loc2.source)
       throw new LittleFootError(

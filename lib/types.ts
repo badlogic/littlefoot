@@ -349,8 +349,7 @@ export class Functions {
       const otherFunc = this.getExact(name, func.signature)! as NamedFunctionType;
       // Adding the exact same function is allowed so
       // module import handling is easier.
-      // FIXME check via identity is bad, use location instead
-      if (func === otherFunc) {
+      if (func.location.equals(otherFunc.location)) {
         return;
       }
       throw new LittleFootError(func.location, `Duplicate function '${name}', first defined in ${otherFunc.location.toString()}.`);
@@ -395,8 +394,7 @@ export class Types {
         }
       } else {
         if (type.kind != "primitive") {
-          // FIXME check via identity is bad, use location instead
-          if (type === otherType) {
+          if (type.location.equals(otherType.location)) {
             return;
           }
           throw new LittleFootError(type.location, `Duplicate type '${name}', first defined in ${otherType.location.toString()}.`);
@@ -414,14 +412,11 @@ export function isEqual(from: Type, to: Type) {
   // If both types are named types, then they are only
   // equal if they are the same type by identity. Unless
   // their concrete types are AnyType
-  // FIXME check by identity is bad, use location instead
-  // This is needed to stop the recursion for types like
-  // type node = <children: [node], value: number>
   if (from.kind == "named type" && to.kind == "named type") {
     if (from.type == AnyType && to.type == AnyType) {
       return true;
     } else {
-      return from === to;
+      return from.location.equals(to.location);
     }
   }
 
@@ -519,11 +514,10 @@ export function isEqual(from: Type, to: Type) {
 export function isAssignableTo(from: Type, to: Type): boolean {
   // If both types are named types, then they are only
   // equal if they are the same type by identity.
-  // FIXME check by identity is bad, use location instead
   // This is needed to stop the recursion for types like
   // type node = <children: [node], value: number>
   if (from.kind == "named type" && to.kind == "named type") {
-    return from === to;
+    return from.location.equals(to.location);
   }
 
   // Unpack the type of named types

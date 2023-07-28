@@ -1,4 +1,4 @@
-const libSource = `
+export const standardLibSource = `
 export external operator or(left: boolean, right: boolean): boolean;
 export external operator and(left: boolean, right: boolean): boolean;
 export external operator xor(left: boolean, right: boolean): boolean;
@@ -12,6 +12,9 @@ export external operator -(left: number, right: number): number;
 export external operator /(left: number, right: number): number;
 export external operator *(left: number, right: number): number;
 export external operator %(left: number, right: number): number;
+
+# String functions
+export external func length(str: string): number;
 
 # List functions
 export external func length[T](list: [T]): number;

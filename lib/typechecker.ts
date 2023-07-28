@@ -48,10 +48,9 @@ export class SymbolScopes {
       let scope = scopes[i];
       let other = scope.get(name);
       if (other) {
-        // FIXME check via identity is bad, use location instead
         // Adding the exact same symbol is allowed so
         // module variable import handling is easier.
-        if (other === node) {
+        if (other.location.equals(node.location)) {
           return;
         }
         throw new LittleFootError(node.name.location, `Duplicate variable ${name}, first defined in ${other.name.location.toString()}.`);
@@ -116,7 +115,8 @@ export function checkTypes(context: TypeCheckerContext) {
     new NamedFunctionType("$main", [], new Map<String, Type>(), new FunctionType([], NothingType), mainNode, false, false, mainLocation)
   );
 
-  // Handle all the imports
+  // Handle all the imports, also import stdlib
+  importModule(context.compilerContext.modules.get("stdlib.lf")!, context.module, context.scopes);
   const imports: ImportNode[] = ast.filter((node) => node.kind == "import") as ImportNode[];
   for (const imp of imports) {
     try {
@@ -492,32 +492,7 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
       }
 
       if (node.importedNames.length == 0) {
-        // Import all exported things defined in the module if no names are given.
-        // We do not export anything transiently.
-        module.types.lookup.forEach((type, name) => {
-          if (type.kind == "named type") {
-            if (type.location.source.path == module.source.path && type.exported) {
-              context.module.types.add(name, type);
-              if (type.constructorFunction) {
-                context.module.functions.add(name, type.constructorFunction);
-              }
-            }
-          }
-        });
-        module.functions.lookup.forEach((funcs, name) => {
-          for (const func of funcs) {
-            if (func.location.source.path == module.source.path && func.exported) {
-              context.module.functions.add(name, func);
-            }
-          }
-        });
-        for (const name of module.variables.keys()) {
-          const variable = module.variables.get(name)!;
-          if (variable.location.source.path == module.source.path && variable.exported) {
-            context.module.variables.set(name, variable);
-            scopes.add(name, variable);
-          }
-        }
+        importModule(module, context.module, scopes);
       } else {
         // Otherwise, import only named things and optionally alias them within
         // this module.
@@ -584,9 +559,8 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
       // function declaration belongs to. So we search for it
       // by matching the identity of the AST in the NamedFunctionType
       // with the function delcaration node.
-      // FIXME check via identity is bad, use location instead
       for (const func of funcs) {
-        if (func.ast === node) {
+        if (func.ast.location.equals(node.location)) {
           func.updateReturnType();
         }
       }
@@ -874,45 +848,11 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
         }
         case "or":
         case "and":
-        case "xor": {
-          const leftType = node.leftExpression.type;
-          const rightType = node.rightExpression.type;
-          if (!(leftType == BooleanType || isGeneric(leftType))) {
-            throw new LittleFootError(
-              node.leftExpression.location,
-              `Left operand of '${node.operator.value}' operator must be a boolean, but is a '${leftType.signature}'.`
-            );
-          }
-          if (!(rightType == BooleanType || isGeneric(rightType))) {
-            throw new LittleFootError(
-              node.rightExpression.location,
-              `Left operand of '${node.operator.value}' operator must be a boolean, but is a '${rightType.signature}'.`
-            );
-          }
-          node.type = BooleanType;
-          break;
-        }
+        case "xor":
         case "<":
         case "<=":
         case ">":
-        case ">=": {
-          const leftType = node.leftExpression.type;
-          const rightType = node.rightExpression.type;
-          if (!(leftType == NumberType || isGeneric(leftType))) {
-            throw new LittleFootError(
-              node.leftExpression.location,
-              `Left operand of '${node.operator.value}' operator must be a number, but is a '${leftType.signature}'.`
-            );
-          }
-          if (!(rightType == NumberType || isGeneric(rightType))) {
-            throw new LittleFootError(
-              node.rightExpression.location,
-              `Left operand of '${node.operator.value}' operator must be a number, but is a '${rightType.signature}'.`
-            );
-          }
-          node.type = BooleanType;
-          break;
-        }
+        case ">=":
         case "+":
         case "-":
         case "/":
@@ -920,19 +860,24 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
         case "%": {
           const leftType = node.leftExpression.type;
           const rightType = node.rightExpression.type;
-          if (!(leftType == NumberType || isGeneric(leftType))) {
-            throw new LittleFootError(
-              node.leftExpression.location,
-              `Left operand of '${node.operator.value}' operator must be a number, but is a '${leftType.signature}'.`
-            );
+          if (isGeneric(leftType) || isGeneric(rightType)) {
+            node.type = AnyType;
+          } else {
+            const closestFunc = getClosestFunction(context, node.operator.value, [node.leftExpression, node.rightExpression]);
+            if (!closestFunc) {
+              throw new LittleFootError(
+                node.location,
+                `Operator '${node.operator.value}' undefined for left type '${leftType.signature}' and right type '${rightType.signature}'.`
+              );
+            }
+            if (closestFunc.length > 1) {
+              throw new LittleFootError(
+                node.location,
+                `Found more than one implementation for operator '${node.operator.value}' for left type '${leftType.signature}' and right type '${rightType.signature}'.`
+              );
+            }
+            node.type = closestFunc[0].type.returnType;
           }
-          if (!(rightType == NumberType || isGeneric(rightType))) {
-            throw new LittleFootError(
-              node.rightExpression.location,
-              `Left operand of '${node.operator.value}' operator must be a number, but is a '${rightType.signature}'.`
-            );
-          }
-          node.type = NumberType;
           break;
         }
         default:
@@ -1058,14 +1003,6 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
       node.type = symbol.type;
       break;
     case "member access":
-      const checkBuiltinField = (fields: any) => {
-        const type = fields[node.member.value];
-        if (!type) {
-          throw new LittleFootError(node.member.location, `Field '${node.member.value}' does not exist on a '${node.object.type.signature}'.`);
-        }
-        node.type = type;
-      };
-
       checkNodeTypes(node.object, context);
       const type = node.object.type.kind == "named function" || node.object.type.kind == "named type" ? node.object.type.type : node.object.type;
       if (type.kind == "record") {
@@ -1080,20 +1017,6 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
         if (!found) {
           throw new LittleFootError(node.member.location, `Field '${node.member.value}' does not exist on a '${node.object.type.signature}'.`);
         }
-      } else if (type.kind == "list") {
-        checkBuiltinField({
-          length: NumberType,
-        });
-      } else if (type.kind == "map") {
-        checkBuiltinField({
-          length: NumberType,
-          keys: new ListType(StringType),
-          values: new ListType(type.valueType),
-        });
-      } else if (type == StringType) {
-        checkBuiltinField({
-          length: NumberType,
-        });
       } else {
         throw new LittleFootError(node.member.location, `Field '${node.member.value}' does not exist on a '${node.object.type.signature}'.`);
       }
@@ -1253,7 +1176,15 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
       if (!closestFunc) {
         throw new LittleFootError(
           node.location,
-          `Could not find function '${node.target.member.value}(${args.map((arg) => arg.type.signature).join(",")})'.`
+          `Could not find function '${node.target.member.value}(${node.args.map((arg) => arg.type.signature).join(",")})'. ${
+            functions.get(node.target.member.value)
+              ? "Candidates: \n" +
+                functions
+                  .get(node.target.member.value)!
+                  .map((func) => "\t" + func.signature)
+                  .join("\n")
+              : ""
+          }`
         );
       }
       if (closestFunc.length > 1) {
@@ -1308,7 +1239,6 @@ function checkFunctionNode(node: FunctionLiteralNode | FunctionNode, context: Ty
       }
       node.isBeingChecked = true;
 
-      // FIXME context.genericBindings needs to be a stack, the stack needs to be cleared once the function exits.
       context.pushGenericBindings();
       const genericBindings = context.getGenericBindings();
       if (node.type.kind == "named function" && node.type.genericTypeBindings.size > 0) {
@@ -1461,6 +1391,35 @@ function checkBlock(block: StatementNode[], context: TypeCheckerContext) {
         );
       }
     }*/
+  }
+}
+
+export function importModule(fromModule: Module, toModule: Module, scopes: SymbolScopes) {
+  // Import all exported things defined in the module if no names are given.
+  // We do not export anything transiently.
+  fromModule.types.lookup.forEach((type, name) => {
+    if (type.kind == "named type") {
+      if (type.location.source.path == fromModule.source.path && type.exported) {
+        toModule.types.add(name, type);
+        if (type.constructorFunction) {
+          toModule.functions.add(name, type.constructorFunction);
+        }
+      }
+    }
+  });
+  fromModule.functions.lookup.forEach((funcs, name) => {
+    for (const func of funcs) {
+      if (func.location.source.path == fromModule.source.path && func.exported) {
+        toModule.functions.add(name, func);
+      }
+    }
+  });
+  for (const name of fromModule.variables.keys()) {
+    const variable = fromModule.variables.get(name)!;
+    if (variable.location.source.path == fromModule.source.path && variable.exported) {
+      toModule.variables.set(name, variable);
+      scopes.add(name, variable);
+    }
   }
 }
 
