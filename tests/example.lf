@@ -21,23 +21,24 @@ yet, because I'm too lazy to figure out the correct regex incantation 🤷"
 # Apart from srings you can also have plain old numbers. You can specify
 # number values as integers, decimal, hex, and binary numbers. These
 # will be stored as 64-bit doubles.
-1 2.234 0xff 0b10101
+1; 2.234; 0xff; 0b10101;
 
 # Booleans values are also supported.
-true false
+true;
+false;
 
 # There's also nothing, which is used to signal the absence of a value, like
 # when a function doesn't return anything. We'll see nothing again later.
-nothing
+nothing;
 
 # The value literals above are all expressions. As you can see, expressions
 # can be free standing, just like other more common statements like if, while
 # etc.
 
 # You can also have (nested) lists.
-[0, 1, 2, 3]
-["Hello", "world"]
-[true, true, false, true]
+[0, 1, 2, 3];
+["Hello", "world"];
+[true, true, false, true];
 [
   ["Little", "foot"],
   ["Another", "one", "bites", "the", "dust"]

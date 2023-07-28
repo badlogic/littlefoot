@@ -610,7 +610,7 @@ function parseMemberAccessOrCall(expression: ExpressionNode, stream: TokenStream
   // E.g. `nothing [0, 1, 2, 3]` will result in a method call instead of two separate
   // expressions.
   //
-  // This problem is exhibited in the example.lf file.
+  // This problem is exhibited in the example.lf file. Need to use ";" ...
   let result: ExpressionNode = expression;
   while (stream.hasMore() && stream.matchValues(["(", "[", ".", ";"])) {
     if (stream.matchValue("(")) {
