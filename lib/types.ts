@@ -412,12 +412,17 @@ export class Types {
 
 export function isEqual(from: Type, to: Type) {
   // If both types are named types, then they are only
-  // equal if they are the same type by identity.
+  // equal if they are the same type by identity. Unless
+  // their concrete types are AnyType
   // FIXME check by identity is bad, use location instead
   // This is needed to stop the recursion for types like
   // type node = <children: [node], value: number>
   if (from.kind == "named type" && to.kind == "named type") {
-    return from === to;
+    if (from.type == AnyType && to.type == AnyType) {
+      return true;
+    } else {
+      return from === to;
+    }
   }
 
   // Unpack the type of named types.

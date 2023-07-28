@@ -3,6 +3,63 @@ import { ListType, MapType, NameAndType, NamedType, NothingType, NumberType, Rec
 import { testCompile } from "./utils";
 
 describe("Typechecker tests", () => {
+  it("Should check generics.", () => {
+    const { errors, modules } = testCompile(`
+    type r[T, R] = <f: (p: T): R>
+    var rr: r = <f: func(p: number)
+      if p > 0 then
+        return "test"
+      else
+        return 0
+      end
+    end
+    >
+
+    r(func (p: number): number return 0 end)
+
+    type s[T] = <a: T, b: [T]>
+    var ss: s[number] = <a: 0, b: [0]>
+    var sa: s = <a: 0, b: [0]>
+    var sc = <a: 0, b: [0]> as s[number]
+
+    func add[T](a: T, b: T): T
+      return a + b
+    end
+
+    add(1, 2)
+
+    func foo[T](v: T): nothing
+      if v is [T] then
+      end
+    end
+
+    external func push[T](list: [T], element: T): nothing;
+
+    func map[I, O](list: [I], f: (element: I, index: number): O): [O]
+      const result: [O] = []
+      for index from 0 to list.length do
+        push(result, f(list[index], index))
+      end
+      return result
+    end
+
+    func filter[T](list: [T], f: (element: T, index: number): boolean): [T]
+      const result: [T] = []
+      for index from 0 to list.length do
+        if (f(list[index], index)) then
+          push(result, list[index])
+        end
+      end
+      return result
+    end
+
+    var numbers = [0, 1, 2, 3, 4, 5]
+    map(numbers, func(element: number, index: number) return element + 1 end)
+    filter(numbers, func(element: number, index: number) return element >= 3 end)
+
+    `);
+    expect(errors.length).toBe(0);
+  });
   it("Should resolve imports.", () => {
     const { errors, modules } = compile(
       "source.lf",

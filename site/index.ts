@@ -22,7 +22,6 @@ if (stored) editor.value = stored;
 else {
   editor.value = example;
 }
-compileText(editor.value);
 
 function compileText(value: string) {
   localStorage.setItem("source", value);

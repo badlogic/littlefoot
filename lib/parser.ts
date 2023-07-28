@@ -259,7 +259,11 @@ function parseNameAndType(stream: TokenStream) {
 function parseFunction(stream: TokenStream, hasName: boolean, attributes: Attribute[] = []) {
   const firstToken = stream.matchValue("func") ? stream.expectValue("func") : stream.expectValue("operator");
   const isOperator = firstToken.value == "operator";
-  const name = hasName ? (isOperator ? stream.expectType(OperatorToken) : stream.expectType(IdentifierToken)) : null;
+  let name = hasName ? (isOperator ? stream.expectType(OperatorToken) : stream.expectType(IdentifierToken)) : null;
+  if (isOperator && name?.value == "[") {
+    stream.expectValue("]");
+    name = new OperatorToken(name.location, "[]", name.comments);
+  }
   if (hasName == false && attributes.length > 0)
     throw new LittleFootError(firstToken.location, "Function literals can not have attributes like export or external.");
   if (hasName && attributes.length > 3)
