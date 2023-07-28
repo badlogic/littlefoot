@@ -604,6 +604,13 @@ function parseLiteralOrVariableAccess(stream: TokenStream): ExpressionNode {
 }
 
 function parseMemberAccessOrCall(expression: ExpressionNode, stream: TokenStream) {
+  // FIXME previously, we expected expression to be a VariableAccess. Now it can be
+  // any type of expression. This leads to ambiguities with the [] operator.
+  //
+  // E.g. `nothing [0, 1, 2, 3]` will result in a method call instead of two separate
+  // expressions.
+  //
+  // This problem is exhibited in the example.lf file.
   let result: ExpressionNode = expression;
   while (stream.hasMore() && stream.matchValues(["(", "[", ".", ";"])) {
     if (stream.matchValue("(")) {

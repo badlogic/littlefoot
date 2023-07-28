@@ -22,7 +22,7 @@ export external func push[T](list: [T], element: T): nothing;
 export external func push[T](list: [T], elements: [T]): nothing;
 export external func pop[T](list: [T]): T;
 export external operator [][T](list: [T], index: number): T;
-export external operator [][T](list: [T], element: T): T;
+export external operator [][T](list: [T], index: number, element: T): T;
 
 # Map functions
 export external func length[T](map: {T}): number;

@@ -817,6 +817,9 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
               );
             }
           } else if (node.leftExpression.kind == "map or list access") {
+            // FIXME check if there's anoperator [][T](list: [T], index, element: T): T; or
+            // operator [][T](map: {T}, key: string, element: T): T; we can
+            // use for the assignment.
             if (node.leftExpression.target.type.kind == "list") {
               if (!isAssignableTo(node.rightExpression, node.leftExpression.target.type.elementType)) {
                 `Can not assign a '${node.rightExpression.type.signature}' to an array with '${node.leftExpression.target.type.elementType.signature}'`;
@@ -1022,6 +1025,8 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
       }
       break;
     case "map or list access":
+      // FIXME check if there's an operator [][T](list: [T], index: number): T; or
+      // operator [][T](map: {T}, key: string): T;
       checkNodeTypes(node.keyOrIndex, context);
       checkNodeTypes(node.target, context);
       if (node.target.type.kind == "list") {
