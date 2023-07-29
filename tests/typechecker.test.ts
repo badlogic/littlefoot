@@ -66,9 +66,16 @@ describe("Typechecker tests", () => {
     map(numbers, func(element: number, index: number) return element + 1 end)
     filter(numbers, func(element: number, index: number) return element >= 3 end)
     forEach(numbers, func(n: number, index: number) print(n) end);
+
+    type node[L, R] = <children: [node], lValue: L, rValue: R>
+    type root[V] = <left: node[V, V], right: node[V, V]>
+    var left = node([], 1, 1)
+    var right = node([], 2, 1)
+    var r = root(left, right)
     `);
     expect(errors.length).toBe(0);
   });
+
   it("Should resolve imports.", () => {
     const { errors, modules } = compile(
       "source.lf",

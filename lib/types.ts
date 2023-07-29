@@ -6,7 +6,7 @@ export abstract class BaseType {
   public abstract kind: string;
   public signature: string = "";
 
-  abstract copy(): Type;
+  abstract copy(namedTypeCopies: Map<string, NamedType>): Type;
 
   abstract updateSignature(): void;
 }
@@ -23,7 +23,7 @@ export class PrimitiveType extends BaseType {
     this.updateSignature();
   }
 
-  copy(): PrimitiveType {
+  copy(namedTypeCopies = new Map<string, NamedType>()): PrimitiveType {
     return this;
   }
 
@@ -45,8 +45,8 @@ export class ListType extends BaseType {
     this.updateSignature();
   }
 
-  copy(): ListType {
-    return new ListType(this.elementType.copy());
+  copy(namedTypeCopies = new Map<string, NamedType>()): ListType {
+    return new ListType(this.elementType.copy(namedTypeCopies));
   }
 
   updateSignature(): void {
@@ -68,8 +68,8 @@ export class MapType extends BaseType {
     this.updateSignature();
   }
 
-  copy(): MapType {
-    return new MapType(this.valueType.copy());
+  copy(namedTypeCopies = new Map<string, NamedType>()): MapType {
+    return new MapType(this.valueType.copy(namedTypeCopies));
   }
 
   updateSignature(): void {
@@ -87,8 +87,8 @@ export class RecordType extends BaseType {
     this.updateSignature();
   }
 
-  copy(): RecordType {
-    return new RecordType(this.fields.map((field) => new NameAndType(field.name, field.type.copy())));
+  copy(namedTypeCopies = new Map<string, NamedType>()): RecordType {
+    return new RecordType(this.fields.map((field) => new NameAndType(field.name, field.type.copy(namedTypeCopies))));
   }
 
   updateSignature() {
@@ -118,9 +118,9 @@ export class FunctionType extends BaseType {
     this.updateSignature();
   }
 
-  copy(): FunctionType {
-    const paramsCopy = this.parameters.map((param) => new NameAndType(param.name, param.type.copy()));
-    return new FunctionType(paramsCopy, this.returnType.copy());
+  copy(namedTypeCopies = new Map<string, NamedType>()): FunctionType {
+    const paramsCopy = this.parameters.map((param) => new NameAndType(param.name, param.type.copy(namedTypeCopies)));
+    return new FunctionType(paramsCopy, this.returnType.copy(namedTypeCopies));
   }
 
   updateSignature(): void {
@@ -140,8 +140,8 @@ export class UnionType extends BaseType {
     this.updateSignature();
   }
 
-  copy(): UnionType {
-    return new UnionType(this.types.map((type) => type.copy()));
+  copy(namedTypeCopies = new Map<string, NamedType>()): UnionType {
+    return new UnionType(this.types.map((type) => type.copy(namedTypeCopies)));
   }
 
   updateSignature(): void {
@@ -174,17 +174,28 @@ export class NamedType extends BaseType {
     this.updateSignature();
   }
 
-  copy(): NamedType {
-    return new NamedType(
+  copy(namedTypeCopies = new Map<string, NamedType>()): NamedType {
+    // Named types should only be copied once when copying a type hierarchy,
+    // so generic instantiation works as intended for recursive types like
+    // type node[T] = <children: [node[T]], value: T>
+    if (namedTypeCopies.has(this.name)) {
+      return namedTypeCopies.get(this.name)!;
+    }
+
+    const copiedType = new NamedType(
       this.name,
       this.genericTypeNames,
       this.genericTypeBindings,
       this.isInstantiated,
-      this.type.copy(),
+      UnknownType,
       this.typeNode,
       this.exported,
       this.location
     );
+    namedTypeCopies.set(this.name, copiedType);
+
+    copiedType.type = this.type.copy(namedTypeCopies);
+    return copiedType;
   }
 
   updateGenericTypeBindings(genericTypeBindings: Map<String, Type>) {
@@ -238,13 +249,13 @@ export class NamedFunctionType extends BaseType {
     this.updateSignature();
   }
 
-  copy(): NamedFunctionType {
+  copy(namedTypeCopies = new Map<string, NamedType>()): NamedFunctionType {
     return new NamedFunctionType(
       this.name,
       this.genericTypeNames,
       this.genericTypeBindings,
       this.isInstantiated,
-      this.type.copy(),
+      this.type.copy(namedTypeCopies),
       this.ast,
       this.exported,
       this.external,
@@ -396,6 +407,9 @@ export class Types {
   }
 
   add(name: string, type: PrimitiveType | NamedType) {
+    if (name == "node") {
+      console.log("wtf");
+    }
     if (this.has(name)) {
       const otherType = this.get(name)!;
       if (otherType.kind == "primitive") {

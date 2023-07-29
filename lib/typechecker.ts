@@ -405,7 +405,7 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
       }
 
       // If this reference is generic and has bindings, instantiate the new type.
-      if (type.kind == "named type" && type.genericTypeNames.length > 0 && node.genericTypeBindings.length > 0) {
+      if (type.type != ResolvingTypeMarker && type.kind == "named type" && type.genericTypeNames.length > 0 && node.genericTypeBindings.length > 0) {
         if (node.genericTypeBindings.length != type.genericTypeNames.length) {
           throw new LittleFootError(
             node.location,
@@ -2019,8 +2019,37 @@ function inferGenericTypes(genericNode: AstNode, genericType: NamedType | NamedF
         }
         break;
       case "named type":
-        // This can be encountered in return types of generic functions. Ignore it
-        // as it is not used for inference.
+        // Extract bindings from concrete generic type if available.
+        if (concreteType.kind == "named type") {
+          if (genericType.genericTypeBindings.size != concreteType.genericTypeBindings.size) {
+            throw new LittleFootError(
+              node.location,
+              `Internal error: number of bindings (${genericType.genericTypeBindings.size}) for generic type ${genericType.signature} != number of bindings (${concreteType.genericTypeBindings.size}) for concrete type ${concreteType.signature}.`
+            );
+          }
+          genericType.genericTypeBindings.forEach((genericBinding, genericName) => {
+            if (genericBinding.kind == "named type" && genericBinding.type == AnyType) {
+              const concreteBinding = concreteType.genericTypeBindings.get(genericName);
+              if (!concreteBinding) {
+                throw new LittleFootError(
+                  node.location,
+                  `Internal error: couldn't find concrete binding ${genericName} for generic binding ${genericBinding.name} in named type.`
+                );
+              }
+              let bindings = genericTypeBindings.get(genericBinding.name);
+              if (!bindings) {
+                bindings = [];
+                genericTypeBindings.set(genericBinding.name, bindings);
+              }
+              bindings.push(concreteBinding);
+            }
+          });
+        } else {
+          throw new LittleFootError(
+            node.location,
+            `Internal error: generic type ${genericType.signature} != concrete type ${concreteType.signature}.`
+          );
+        }
         break;
       case "named function":
         throw new LittleFootError(concreteNode.location, `Internal error: found named function type in concrete type.`);
@@ -2062,9 +2091,12 @@ function instantiateGenericType(genericType: NamedType | NamedFunctionType, gene
   // Construct a type with the bindings
   // FIXME ensure that all generic type names have a binding. E.g. type r[T, R] = <f: (p: T): R>
   let genericBoundType = genericType.copy();
+  const replacedNamedTypes = new Set<Type>();
   const replace = (type: Type, bindings: Map<String, Type>): Type => {
     if (type.kind == "named type" && type.type == AnyType) {
-      return bindings.get(type.name)!;
+      const binding = bindings.get(type.name);
+      if (!binding) throw new LittleFootError(genericType.location, `Internal error: can't resolve generic binding ${type.name}`);
+      return binding;
     }
 
     switch (type.kind) {
@@ -2095,8 +2127,12 @@ function instantiateGenericType(genericType: NamedType | NamedFunctionType, gene
         }
         break;
       case "named type":
-        type.type = replace(type.type, bindings);
-        type.genericTypeBindings = bindings;
+        // handle recursive named types
+        if (!replacedNamedTypes.has(type)) {
+          replacedNamedTypes.add(type);
+          type.type = replace(type.type, bindings);
+          type.genericTypeBindings = bindings;
+        }
         break;
       case "named function":
         type.type = replace(type.type, bindings) as FunctionType;
