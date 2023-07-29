@@ -112,7 +112,7 @@ export function checkTypes(context: TypeCheckerContext) {
   const mainNode = new FunctionLiteralNode(new IdentifierToken(mainLocation, context.module.source.text), [], null, mainStatements, mainLocation);
   context.module.functions.add(
     "$main",
-    new NamedFunctionType("$main", [], new Map<String, Type>(), new FunctionType([], NothingType), mainNode, false, false, mainLocation)
+    new NamedFunctionType("$main", [], new Map<String, Type>(), false, new FunctionType([], NothingType), mainNode, false, false, mainLocation)
   );
 
   // Handle all the imports, also import stdlib
@@ -149,6 +149,7 @@ export function checkTypes(context: TypeCheckerContext) {
         typeNode.name.value,
         typeNode.genericTypeNames.map((genericTypeName) => genericTypeName.value),
         new Map<String, Type>(),
+        false,
         UnknownType,
         typeNode,
         typeNode.exported,
@@ -208,6 +209,7 @@ export function checkTypes(context: TypeCheckerContext) {
         type.name,
         typeNode.genericTypeNames.map((type) => type.value),
         new Map<String, Type>(),
+        false,
         funcType,
         new FunctionNode(typeNode.location, typeNode.name, [], [], null, [], typeNode.exported, true, false),
         true,
@@ -229,6 +231,7 @@ export function checkTypes(context: TypeCheckerContext) {
         func.name.value,
         func.genericTypeNames.map((type) => type.value),
         new Map<String, Type>(),
+        false,
         functionType,
         func,
         func.exported,
@@ -439,6 +442,7 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
                 genericType.value,
                 [],
                 new Map<String, Type>(),
+                false,
                 AnyType,
                 // FIXME last parameter of TypeReferenceNode should not be null
                 new TypeNode(genericType, genericType, [], new TypeReferenceNode(genericType, [], null), false),
@@ -1083,7 +1087,7 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
                   ? "Candidates: \n" +
                     functions
                       .get(node.target.name.value)!
-                      .map((func) => "\t" + func.signature)
+                      .map((func) => "\t" + func.signature + " (" + func.location.toString() + ")")
                       .join("\n")
                   : ""
               }`
@@ -1093,7 +1097,7 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
             throw new LittleFootError(
               node.location,
               `More than one function called '${node.target.name.value}' matches the arguments. Candidates: \n${closestFunc
-                .map((func) => "\t" + func.signature)
+                .map((func) => "\t" + func.signature + " (" + func.location.toString() + ")")
                 .join("\n")}`
             );
           }
@@ -1106,6 +1110,7 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
           // 2. The call is part of checking a generic function invocation, which means it has generic type
           //    bindings set.
           if (
+            !closestFunc[0].isInstantiated &&
             closestFunc[0].genericTypeNames.length > 0 &&
             (context.getGenericBindings().size == 0 || context.getGenericBindings().values().next().value.type !== AnyType)
           ) {
@@ -1186,7 +1191,7 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
               ? "Candidates: \n" +
                 functions
                   .get(node.target.member.value)!
-                  .map((func) => "\t" + func.signature)
+                  .map((func) => "\t" + func.signature + " (" + func.location.toString() + ")")
                   .join("\n")
               : ""
           }`
@@ -1196,7 +1201,7 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
         throw new LittleFootError(
           node.location,
           `More than one function called '${node.target.member.value}' matches the arguments. Candidates: \n${closestFunc
-            .map((func) => "\t" + func.signature)
+            .map((func) => "\t" + func.signature + " (" + func.location.toString() + ")")
             .join("\n")}`
         );
       }
@@ -1209,6 +1214,7 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
       // 2. The call is part of checking a generic function invocation, which means it has generic type
       //    bindings set.
       if (
+        !closestFunc[0].isInstantiated &&
         closestFunc[0].genericTypeNames.length > 0 &&
         (context.getGenericBindings().size == 0 || context.getGenericBindings().values().next().value.type !== AnyType)
       ) {
@@ -1256,6 +1262,7 @@ function checkFunctionNode(node: FunctionLiteralNode | FunctionNode, context: Ty
               genericType.value,
               [],
               new Map<String, Type>(),
+              false,
               AnyType,
               // FIXME last parameter of TypeReferenceNode should not be null
               new TypeNode(genericType, genericType, [], new TypeReferenceNode(genericType, [], null), false),
@@ -2101,6 +2108,7 @@ function instantiateGenericType(genericType: NamedType | NamedFunctionType, gene
     return type;
   };
   genericBoundType = replace(genericBoundType, genericTypeBindings) as NamedType | NamedFunctionType;
+  genericBoundType.isInstantiated = true;
   genericBoundType.updateGenericTypeBindings(genericTypeBindings);
 
   // If this is a function, copy the AST as well and set generic type bindings

@@ -27,22 +27,9 @@ function compileText(value: string) {
   localStorage.setItem("source", value);
   const { errors, modules } = compile("source.lf", new MemorySourceLoader({ path: "source.lf", text: value }));
 
-  if (errors.length == 0) {
-    const ast = modules.get("source.lf")!.ast;
-    editor.highlightErrors([]);
-    output.innerHTML = JSON.stringify(
-      ast,
-      (key, value) => {
-        if (key == "source" || key == "location" || key == "typeNode") return undefined;
-        if (key == "type" && value.signature) return value.signature;
-        if (key == "name" && value.value) return value.value;
-        return value;
-      },
-      2
-    )
-      .replace(/</g, "&lt;")
-      .replace(/\n/g, "<br>");
-  } else {
+  output.innerHTML = "";
+
+  if (errors.length > 0) {
     editor.highlightErrors(errors);
     const html = errors
       .map((error) => error.toString())
@@ -50,5 +37,21 @@ function compileText(value: string) {
       .replace(/</g, "&lt;")
       .replace(/\n/g, "<br>");
     output.innerHTML = html;
+  } else {
+    editor.highlightErrors([]);
   }
+
+  const ast = modules.get("source.lf")!.ast;
+  output.innerHTML += JSON.stringify(
+    ast,
+    (key, value) => {
+      if (key == "source" || key == "location" || key == "typeNode") return undefined;
+      if (key == "type" && value.signature) return value.signature;
+      if (key == "name" && value.value) return value.value;
+      return value;
+    },
+    2
+  )
+    .replace(/</g, "&lt;")
+    .replace(/\n/g, "<br>");
 }

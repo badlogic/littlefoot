@@ -33,12 +33,10 @@ describe("Typechecker tests", () => {
       end
     end
 
-    func map[I, O](list: [I], f: (element: I, index: number): O): [O]
-      const result: [O] = []
+    func forEach[V](list: [V], f: (element: V, index: number): nothing): nothing
       for index from 0 to list.length() do
-        push(result, f(list[index], index))
+        f(list[index], index)
       end
-      return result
     end
 
     func filter[T](list: [T], f: (element: T, index: number): boolean): [T]
@@ -51,10 +49,23 @@ describe("Typechecker tests", () => {
       return result
     end
 
-    var numbers = [0, 1, 2, 3, 4, 5]
+    func map[I, O](list: [I], f: (element: I, index: number): O): [O]
+      const result: [O] = []
+      for index from 0 to list.length() do
+        push(result, f(list[index], index))
+      end
+      return result
+    end
+
+    var numbers = [0, 1, 2, 3, 4, 5];
+    numbers
+      .map(func(element: number, index: number) return element + 1 end)
+      .filter(func(element: number, index: number) return element >= 3 end)
+      .forEach(func(n: number, index: number) print(n) end);
+
     map(numbers, func(element: number, index: number) return element + 1 end)
     filter(numbers, func(element: number, index: number) return element >= 3 end)
-
+    forEach(numbers, func(n: number, index: number) print(n) end);
     `);
     expect(errors.length).toBe(0);
   });

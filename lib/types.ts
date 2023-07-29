@@ -164,6 +164,7 @@ export class NamedType extends BaseType {
     public readonly name: string,
     public readonly genericTypeNames: string[],
     public genericTypeBindings: Map<String, Type>,
+    public isInstantiated: boolean,
     public type: Type,
     public typeNode: TypeNode,
     public readonly exported: boolean,
@@ -174,7 +175,16 @@ export class NamedType extends BaseType {
   }
 
   copy(): NamedType {
-    return new NamedType(this.name, this.genericTypeNames, this.genericTypeBindings, this.type.copy(), this.typeNode, this.exported, this.location);
+    return new NamedType(
+      this.name,
+      this.genericTypeNames,
+      this.genericTypeBindings,
+      this.isInstantiated,
+      this.type.copy(),
+      this.typeNode,
+      this.exported,
+      this.location
+    );
   }
 
   updateGenericTypeBindings(genericTypeBindings: Map<String, Type>) {
@@ -207,6 +217,7 @@ export class NamedFunctionType extends BaseType {
     public readonly name: string,
     public readonly genericTypeNames: string[],
     public genericTypeBindings: Map<String, Type>,
+    public isInstantiated: boolean,
     public type: FunctionType,
     public ast: FunctionNode | FunctionLiteralNode,
     public readonly exported: boolean,
@@ -232,6 +243,7 @@ export class NamedFunctionType extends BaseType {
       this.name,
       this.genericTypeNames,
       this.genericTypeBindings,
+      this.isInstantiated,
       this.type.copy(),
       this.ast,
       this.exported,

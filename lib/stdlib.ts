@@ -35,4 +35,5 @@ export external operator [][T](map: {T}, key: string, element: T): T;
 
 # Basic IO
 export external func print(message: string): nothing;
+export external func print(num: number): nothing;
 `;
