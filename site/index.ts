@@ -26,7 +26,9 @@ else {
 
 function compileText(value: string) {
   localStorage.setItem("source", value);
+  let start = performance.now();
   const { errors, modules } = compile("source.lf", new MemorySourceLoader({ path: "source.lf", text: value }));
+  console.log(`Compilation took: ${(performance.now() - start).toFixed(2)} ms`);
 
   showOutput(errors, modules);
   showModule(modules);
