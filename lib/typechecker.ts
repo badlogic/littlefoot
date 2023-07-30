@@ -67,7 +67,8 @@ export class TypeCheckerContext {
     public readonly compilerContext: CompilerContext,
     public readonly scopes = new SymbolScopes(),
     private readonly genericBindings: Map<String, Type>[] = [],
-    private readonly currentLoop: (ForNode | ForEachNode | WhileNode | DoNode)[] = []
+    private readonly currentLoop: (ForNode | ForEachNode | WhileNode | DoNode)[] = [],
+    public nameFunctionOrType: FunctionNode | TypeNode | null = null
   ) {
     genericBindings.push(new Map<String, Type>());
   }
@@ -97,6 +98,18 @@ export class TypeCheckerContext {
 
   getGenericBindings() {
     return this.genericBindings[this.genericBindings.length - 1];
+  }
+
+  isInGenericFunctionOrTypeDeclaration() {
+    if (!this.nameFunctionOrType) return false;
+    if (this.nameFunctionOrType.genericTypeNames.length == 0) return false;
+    if (this.nameFunctionOrType.type == UnknownType) return true; // Happens when func is first checked in checkTypes()
+    if (
+      (this.nameFunctionOrType.type.kind == "named function" || this.nameFunctionOrType.type.kind == "named type") &&
+      this.nameFunctionOrType.type.genericTypeBindings.size == 0
+    )
+      return true;
+    return false;
   }
 }
 
@@ -226,6 +239,7 @@ export function checkTypes(context: TypeCheckerContext) {
   const namedFunctions = ast.filter((node) => node.kind == "function declaration") as FunctionNode[];
   for (const func of namedFunctions) {
     try {
+      context.nameFunctionOrType = func;
       const functionType = checkFunctionNode(func, context, false);
       const namedFunction = new NamedFunctionType(
         func.name.value,
@@ -238,11 +252,14 @@ export function checkTypes(context: TypeCheckerContext) {
         func.external,
         func.location
       );
+      func.type = namedFunction;
       functions.add(namedFunction.name, namedFunction);
     } catch (e) {
       if (e instanceof LittleFootError) errors.push(e);
       else errors.push(new LittleFootError(func.location, "Internal error: " + (e as any).message + "\n" + (e as any).stack));
       return;
+    } finally {
+      context.nameFunctionOrType = null;
     }
   }
 
@@ -251,6 +268,8 @@ export function checkTypes(context: TypeCheckerContext) {
   for (const node of ast) {
     // Skip imports, they are fully handled above
     if (node.kind == "import") continue;
+    // Skip type declarations, they are fully handled above
+    if (node.kind == "type declaration") continue;
 
     // TODO recover in case a statement or expression throws an error and type check the remainder of the AST if possible
     // This should work for errors within functions. For top-level statements, stop if a var declaration fails.
@@ -421,7 +440,7 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
           bindings.set(type.genericTypeNames[i], genericTypeBinding.type);
         }
 
-        type = instantiateGenericType(type, bindings, context) as NamedType;
+        type = instantiateGenericType(node, type, bindings, context) as NamedType;
       }
       node.type = type;
       break;
@@ -431,6 +450,7 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
       // via the "type reference" case above.
       if (node.type.kind == "named type") {
         try {
+          context.nameFunctionOrType = node;
           context.pushGenericBindings();
           const genericBindings = context.getGenericBindings();
           const type = types.get(node.name.value)! as NamedType;
@@ -475,6 +495,7 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
           return;
         } finally {
           context.popGenericBindigs();
+          context.nameFunctionOrType = null;
         }
       }
       break;
@@ -544,29 +565,34 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
       break; // no-op, handled in "import" case above
     }
     case "function declaration": {
-      checkFunctionNode(node, context, true);
-      if (!node.returnType && node.genericTypeNames.length > 0) {
-        throw new LittleFootError(node.name.location, "Generic functions must specify a return type.");
-      }
-      const funcs = functions.get(node.name.value);
-      if (!funcs) {
-        throw new LittleFootError(
-          node.name.location,
-          `Internal error: couldn't find named function ${node.name.value}${node.type.signature} to update its return type.`
-        );
-      }
-
-      // Updating the return type of the
-      // corresponding NamedFunctionType must be done after
-      // the named function has been fully resolved. But we
-      // don't have a reference to the NamedFunctionType this
-      // function declaration belongs to. So we search for it
-      // by matching the identity of the AST in the NamedFunctionType
-      // with the function delcaration node.
-      for (const func of funcs) {
-        if (func.ast.location.equals(node.location)) {
-          func.updateReturnType();
+      try {
+        context.nameFunctionOrType = node;
+        checkFunctionNode(node, context, true);
+        if (!node.returnType && node.genericTypeNames.length > 0) {
+          throw new LittleFootError(node.name.location, "Generic functions must specify a return type.");
         }
+        const funcs = functions.get(node.name.value);
+        if (!funcs) {
+          throw new LittleFootError(
+            node.name.location,
+            `Internal error: couldn't find named function ${node.name.value}${node.type.signature} to update its return type.`
+          );
+        }
+
+        // Updating the return type of the
+        // corresponding NamedFunctionType must be done after
+        // the named function has been fully resolved. But we
+        // don't have a reference to the NamedFunctionType this
+        // function declaration belongs to. So we search for it
+        // by matching the identity of the AST in the NamedFunctionType
+        // with the function delcaration node.
+        for (const func of funcs) {
+          if (func.ast.location.equals(node.location)) {
+            func.updateReturnType();
+          }
+        }
+      } finally {
+        context.nameFunctionOrType = null;
       }
       break;
     }
@@ -575,7 +601,7 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
       if (node.typeNode) {
         checkNodeTypes(node.typeNode, context);
         node.type = node.typeNode.type;
-        if (!isAssignableTo(node.initializer, node.type)) {
+        if (!isAssignableTo(node.initializer, node.type, context)) {
           // RECOVER: the type of the variable is given, so it doesn't matter that the
           // initializer expression has an error.
           context.compilerContext.errors.push(
@@ -587,7 +613,7 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
         if (node.typeNode.type.kind == "named type" && node.typeNode.type.genericTypeNames.length > 0) {
           if (node.typeNode.type.genericTypeBindings.size == 0) {
             const genericTypeBindings = inferGenericTypes(node.typeNode, node.typeNode.type, node.initializer, node.initializer.type);
-            node.typeNode.type = instantiateGenericType(node.typeNode.type, genericTypeBindings, context);
+            node.typeNode.type = instantiateGenericType(node.initializer, node.typeNode.type, genericTypeBindings, context);
           }
         }
         node.type = node.typeNode.type;
@@ -639,7 +665,7 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
           throw new LittleFootError(operator.isOperator.leftExpression.location, "Variable type must be a union.");
         }
         const narrowedType = operator.isOperator.typeNode.type;
-        if (!isAssignableTo(operator.isOperator.typeNode, variable.type)) {
+        if (!isAssignableTo(operator.isOperator.typeNode, variable.type, context)) {
           throw new LittleFootError(
             variable.location,
             `Variable '${variable.name.value}' is a '${variable.type.signature}' and can never be a '${narrowedType.signature}'.`
@@ -647,7 +673,7 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
         }
 
         if (operator.isNegated && variableType.kind == "union") {
-          const newTypes = variableType.types.filter((type) => !isAssignableTo(variable, narrowedType));
+          const newTypes = variableType.types.filter((type) => !isAssignableTo(variable, narrowedType, context));
           if (newTypes.length == 0) {
             throw new LittleFootError(operator.isOperator.location, `Negation of 'is' operator results in empty type set.`); // TODO better message
           }
@@ -807,14 +833,14 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
                 `Can not assign a new value to constant '${node.leftExpression.name.value}'`
               );
             }
-            if (!isAssignableTo(node.rightExpression, node.leftExpression.type)) {
+            if (!isAssignableTo(node.rightExpression, node.leftExpression.type, context)) {
               throw new LittleFootError(
                 node.rightExpression.location,
                 `Can not assign a '${node.rightExpression.type.signature}' to a '${node.leftExpression.type.signature}'`
               );
             }
           } else if (node.leftExpression.kind == "member access") {
-            if (!isAssignableTo(node.rightExpression, node.leftExpression.type)) {
+            if (!isAssignableTo(node.rightExpression, node.leftExpression.type, context)) {
               throw new LittleFootError(
                 node.rightExpression.location,
                 `Can not assign a '${node.rightExpression.type.signature}' to a '${node.leftExpression.type.signature}'`
@@ -825,11 +851,11 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
             // operator [][T](map: {T}, key: string, element: T): T; we can
             // use for the assignment.
             if (node.leftExpression.target.type.kind == "list") {
-              if (!isAssignableTo(node.rightExpression, node.leftExpression.target.type.elementType)) {
+              if (!isAssignableTo(node.rightExpression, node.leftExpression.target.type.elementType, context)) {
                 `Can not assign a '${node.rightExpression.type.signature}' to an array with '${node.leftExpression.target.type.elementType.signature}'`;
               }
             } else if (node.leftExpression.target.type.kind == "map") {
-              if (!isAssignableTo(node.rightExpression, node.leftExpression.target.type.valueType)) {
+              if (!isAssignableTo(node.rightExpression, node.leftExpression.target.type.valueType, context)) {
                 `Can not assign a '${node.rightExpression.type.signature}' to an array with '${node.leftExpression.target.type.valueType.signature}'`;
               }
             } else {
@@ -943,7 +969,7 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
       ) {
         throw new LittleFootError(node.typeNode.location, `Must specify generic type arguments when using a generic type with 'as' operator.`);
       }
-      if (!isAssignableTo(node.leftExpression, node.typeNode.type)) {
+      if (!isAssignableTo(node.leftExpression, node.typeNode.type, context)) {
         throw new LittleFootError(
           node.leftExpression.location,
           `Can not interpret a '${node.leftExpression.type.signature}' as a '${node.typeNode.type.signature}'`
@@ -1069,7 +1095,7 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
           for (let i = 0; i < node.args.length; i++) {
             const arg = node.args[i];
             const param = functionType.parameters[i];
-            if (!isAssignableTo(arg, param.type)) {
+            if (!isAssignableTo(arg, param.type, context)) {
               throw new LittleFootError(arg.location, `Expected a ${param.type.signature}, got a ${arg.type.signature}`);
             }
           }
@@ -1105,10 +1131,10 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
           // If the closest function is a generic function, we have a few scenarios to handle:
           // 1. The call is part of checking a non-generic function declaration. In this case
           //    we infer its types based on the arguments and instantiate it.
-          // 1. The call is part of checking a generic function declaration. In this case, we do not infer
+          // 2. The call is part of checking a generic function declaration. In this case, we do not infer
           //    the generic types of the closest function, nor do we instantiate it.
-          // 2. The call is part of checking a generic function invocation, which means it has generic type
-          //    bindings set.
+          // 3. The call is part of checking a generic function invocation, which means it has generic type
+          //    bindings set. In this case we infer its types based on the arguments and instantiate it.
           if (
             !closestFunc[0].isInstantiated &&
             closestFunc[0].genericTypeNames.length > 0 &&
@@ -1123,7 +1149,7 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
             }
             const concretefunctionType = new FunctionType(concreteFunctionParameters, UnknownType);
             genericBindings = inferGenericTypes(closestFunc[0].ast, closestFunc[0], node.target, concretefunctionType);
-            closestFunc[0] = instantiateGenericType(closestFunc[0], genericBindings, context) as NamedFunctionType;
+            closestFunc[0] = instantiateGenericType(node.target, closestFunc[0], genericBindings, context) as NamedFunctionType;
             checkFunctionNode(closestFunc[0].ast, context, true);
           }
 
@@ -1143,7 +1169,7 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
         for (let i = 0; i < node.args.length; i++) {
           const arg = node.args[i];
           const param = functionType.parameters[i];
-          if (!isAssignableTo(arg, param.type)) {
+          if (!isAssignableTo(arg, param.type, context)) {
             throw new LittleFootError(arg.location, `Expected a ${param.type.signature}, got a ${arg.type.signature}`);
           }
         }
@@ -1168,7 +1194,7 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
           for (let i = 0; i < node.args.length; i++) {
             const arg = node.args[i];
             const param = functionType.parameters[i];
-            if (!isAssignableTo(arg, param.type)) {
+            if (!isAssignableTo(arg, param.type, context)) {
               throw new LittleFootError(arg.location, `Expected a ${param.type.signature}, got a ${arg.type.signature}`);
             }
           }
@@ -1209,10 +1235,10 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
       // If the closest function is a generic function, we have a few scenarios to handle:
       // 1. The call is part of checking a non-generic function declaration. In this case
       //    we infer its types based on the arguments and instantiate it.
-      // 1. The call is part of checking a generic function declaration. In this case, we do not infer
+      // 2. The call is part of checking a generic function declaration. In this case, we do not infer
       //    the generic types of the closest function, nor do we instantiate it.
-      // 2. The call is part of checking a generic function invocation, which means it has generic type
-      //    bindings set.
+      // 3. The call is part of checking a generic function invocation, which means it has generic type
+      //    bindings set. In this case we infer its types based on the arguments and instantiate it.
       if (
         !closestFunc[0].isInstantiated &&
         closestFunc[0].genericTypeNames.length > 0 &&
@@ -1227,7 +1253,7 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
         }
         const concretefunctionType = new FunctionType(concreteFunctionParameters, UnknownType);
         genericBindings = inferGenericTypes(closestFunc[0].ast, closestFunc[0], node.target, concretefunctionType);
-        closestFunc[0] = instantiateGenericType(closestFunc[0], genericBindings, context) as NamedFunctionType;
+        closestFunc[0] = instantiateGenericType(node.target, closestFunc[0], genericBindings, context) as NamedFunctionType;
         checkFunctionNode(closestFunc[0].ast, context, true);
       }
 
@@ -1318,7 +1344,7 @@ function checkFunctionNode(node: FunctionLiteralNode | FunctionNode, context: Ty
         for (const statement of node.code) {
           traverseAst(statement, (node) => {
             if (node.kind == "return") {
-              if (!isAssignableTo(node, returnType)) {
+              if (!isAssignableTo(node, returnType, context)) {
                 throw new LittleFootError(
                   node.location,
                   `Can not return a value of type '${node.type.signature}' from a function with return type '${returnType.signature}'.`
@@ -1446,16 +1472,16 @@ export function importModule(fromModule: Module, toModule: Module, scopes: Symbo
  * If `to` includes unions, and `from` is a literal, then corresponding parts of
  * `from`'s type must be expanded to unions.
  */
-function isAssignableTo(from: AstNode, to: Type): boolean {
-  inferTypesOfEmptyListAndMapLiterals(from, to);
-  expandLiteralValueTypesToUnions(from, to);
+function isAssignableTo(from: AstNode, to: Type, context: TypeCheckerContext): boolean {
+  inferTypesOfEmptyListAndMapLiterals(from, to, context);
+  expandLiteralValueTypesToUnions(from, to, context);
   if (!typeIsAssignableTo(from.type, to)) return false;
   return true;
 }
 
 // Finds empty lists and maps in literals and infers their type based on the
 // `to` type.
-function inferTypesOfEmptyListAndMapLiterals(from: AstNode, to: Type): boolean {
+function inferTypesOfEmptyListAndMapLiterals(from: AstNode, to: Type, context: TypeCheckerContext): boolean {
   const toType = to.kind == "named type" ? to.type : to;
 
   // The from type has an empty list or map literal in it. We need to infer
@@ -1473,7 +1499,7 @@ function inferTypesOfEmptyListAndMapLiterals(from: AstNode, to: Type): boolean {
           // unknown type. Recursively check and resolve the unknown types
           // of empty list or map literal values.
           for (const element of from.elements) {
-            if (!inferTypesOfEmptyListAndMapLiterals(element, toType.elementType)) return false;
+            if (!inferTypesOfEmptyListAndMapLiterals(element, toType.elementType, context)) return false;
           }
           from.type.setElementType(nodeListToType(from.elements));
         }
@@ -1485,15 +1511,15 @@ function inferTypesOfEmptyListAndMapLiterals(from: AstNode, to: Type): boolean {
         const listTypes = toType.types.filter((type) => type.kind == "list");
         if (listTypes.length == 0) {
           // If there's no list type in the union, the empty list type can not be inferred.
-          throw new LittleFootError(from.location, `Can not infer type for empty list literal from target type ${to.signature}`);
+          throw new LittleFootError(from.location, `Can not infer type of empty list literal from target type ${to.signature}`);
         } else if (listTypes.length == 1) {
           // If the union contains 1 list type, try to assign that as the empty list type
-          return inferTypesOfEmptyListAndMapLiterals(from, listTypes[0]);
+          return inferTypesOfEmptyListAndMapLiterals(from, listTypes[0], context);
         } else {
           // If there are > 1 list types, the type is undecideable
           throw new LittleFootError(
             from.location,
-            `Can not infer type for empty list literal from target type ${to.signature}. Candidates:\n${listTypes
+            `Can not infer type of empty list literal from target type ${to.signature}. Candidates:\n${listTypes
               .map((type) => "\t" + type.signature)
               .join("\n")}`
           );
@@ -1512,7 +1538,7 @@ function inferTypesOfEmptyListAndMapLiterals(from: AstNode, to: Type): boolean {
           // unknown type. Recursively check and resolve the unknown types
           // of the values.
           for (const value of from.values) {
-            if (!inferTypesOfEmptyListAndMapLiterals(value, toType.valueType)) return false;
+            if (!inferTypesOfEmptyListAndMapLiterals(value, toType.valueType, context)) return false;
           }
 
           // Update the map literal's type.
@@ -1526,15 +1552,15 @@ function inferTypesOfEmptyListAndMapLiterals(from: AstNode, to: Type): boolean {
         const mapTypes = toType.types.filter((type) => type.kind == "map");
         if (mapTypes.length == 0) {
           // If there's no list type in the union, the empty list type can not be inferred.
-          throw new LittleFootError(from.location, `Can not infer type for empty map literal from target type ${to.signature}`);
+          throw new LittleFootError(from.location, `Can not infer type of empty map literal from target type ${to.signature}`);
         } else if (mapTypes.length == 1) {
           // If the union contains 1 list type, try to assign that as the empty list type
-          return inferTypesOfEmptyListAndMapLiterals(from, mapTypes[0]);
+          return inferTypesOfEmptyListAndMapLiterals(from, mapTypes[0], context);
         } else {
           // If there are > 1 list types, the type is undecideable
           throw new LittleFootError(
             from.location,
-            `Can not infer type for empty map literal from target type ${to.signature}. Candidates:\n${mapTypes
+            `Can not infer type of empty map literal from target type ${to.signature}. Candidates:\n${mapTypes
               .map((type) => "\t" + type.signature)
               .join("\n")}`
           );
@@ -1557,7 +1583,7 @@ function inferTypesOfEmptyListAndMapLiterals(from: AstNode, to: Type): boolean {
         let found = false;
         for (const toField of toType.fields) {
           if (fieldName.value !== toField.name) continue;
-          if (inferTypesOfEmptyListAndMapLiterals(fieldValue, toField.type)) {
+          if (inferTypesOfEmptyListAndMapLiterals(fieldValue, toField.type, context)) {
             found = true;
             break;
           }
@@ -1585,7 +1611,7 @@ function inferTypesOfEmptyListAndMapLiterals(from: AstNode, to: Type): boolean {
  * to type is a union. Needed to ensure the memory layouts of
  * all involved types match.
  */
-function expandLiteralValueTypesToUnions(from: AstNode, to: Type) {
+function expandLiteralValueTypesToUnions(from: AstNode, to: Type, context: TypeCheckerContext) {
   const toType = to.kind == "named type" ? to.type : to;
 
   if (hasUnion(to)) {
@@ -1622,7 +1648,7 @@ function expandLiteralValueTypesToUnions(from: AstNode, to: Type) {
               }
               // Otherwise, check if from is assignable to to and if so
               // add it to the list of candidates.
-              if (isAssignableTo(element, unionType)) {
+              if (isAssignableTo(element, unionType, context)) {
                 candidates.push(unionType);
               }
               element.type = oldType.copy();
@@ -1630,7 +1656,7 @@ function expandLiteralValueTypesToUnions(from: AstNode, to: Type) {
             element.type = oldType;
             if (candidates.length == 1) {
               // expand the list, maps, or record internal types to unions if necessary
-              isAssignableTo(element, candidates[0]);
+              isAssignableTo(element, candidates[0], context);
             } else {
               if (candidates.length > 1) {
                 throw new LittleFootError(
@@ -1658,7 +1684,7 @@ function expandLiteralValueTypesToUnions(from: AstNode, to: Type) {
       if (toElementType.kind == "list" || toElementType.kind == "map" || toElementType.kind == "record") {
         if (from.elements.length > 0) {
           for (const element of from.elements) {
-            expandLiteralValueTypesToUnions(element, toType.elementType);
+            expandLiteralValueTypesToUnions(element, toType.elementType, context);
           }
           from.type.setElementType(nodeListToType(from.elements));
         }
@@ -1694,7 +1720,7 @@ function expandLiteralValueTypesToUnions(from: AstNode, to: Type) {
               }
               // Otherwise, check if from is assignable to to and if so
               // add it to the list of candidates.
-              if (isAssignableTo(element, unionType)) {
+              if (isAssignableTo(element, unionType, context)) {
                 candidates.push(unionType);
               }
               element.type = oldType.copy();
@@ -1702,7 +1728,7 @@ function expandLiteralValueTypesToUnions(from: AstNode, to: Type) {
             element.type = oldType;
             if (candidates.length == 1) {
               // expand the list, maps, or record internal types to unions if necessary
-              isAssignableTo(element, candidates[0]);
+              isAssignableTo(element, candidates[0], context);
             } else {
               if (candidates.length > 1) {
                 throw new LittleFootError(
@@ -1730,7 +1756,7 @@ function expandLiteralValueTypesToUnions(from: AstNode, to: Type) {
       if (toValueType.kind == "list" || toValueType.kind == "map" || toValueType.kind == "record") {
         if (from.values.length > 0) {
           for (const element of from.values) {
-            expandLiteralValueTypesToUnions(element, toType.valueType);
+            expandLiteralValueTypesToUnions(element, toType.valueType, context);
           }
           from.type.setValueType(nodeListToType(from.values));
         }
@@ -1753,7 +1779,7 @@ function expandLiteralValueTypesToUnions(from: AstNode, to: Type) {
         let found = false;
         for (const toField of toType.fields) {
           if (fieldName.value !== toField.name) continue;
-          expandLiteralValueTypesToUnions(fieldValue, toField.type);
+          expandLiteralValueTypesToUnions(fieldValue, toField.type, context);
           found = true;
           break;
         }
@@ -1784,7 +1810,7 @@ function expandLiteralValueTypesToUnions(from: AstNode, to: Type) {
         }
         // Otherwise, check if from is assignable to to and if so
         // add it to the list of candidates.
-        if (isAssignableTo(from, unionType)) {
+        if (isAssignableTo(from, unionType, context)) {
           candidates.push(unionType);
         }
         from.type = oldType.copy();
@@ -1792,7 +1818,7 @@ function expandLiteralValueTypesToUnions(from: AstNode, to: Type) {
       from.type = oldType;
       if (candidates.length == 1) {
         // expand the list, maps, or record internal types to unions if necessary
-        isAssignableTo(from, candidates[0]);
+        isAssignableTo(from, candidates[0], context);
         // Set from's type to the full union so we can box later
         from.type = to;
       } else {
@@ -1820,7 +1846,7 @@ function getClosestFunction(context: TypeCheckerContext, name: string, args: Ast
       checkFunctionNode(func.ast, context, true);
       func.updateReturnType();
     }
-    const score = scoreFunction(func, args);
+    const score = scoreFunction(func, args, context);
     if (score != Number.MAX_VALUE) {
       scoredFunctions.push({ score, func });
     }
@@ -1842,13 +1868,13 @@ function getClosestFunction(context: TypeCheckerContext, name: string, args: Ast
     for (let i = 0; i < args.length; i++) {
       const param = func.type.parameters[i].type;
       const arg = args[i];
-      isAssignableTo(arg, param);
+      isAssignableTo(arg, param, context);
     }
   }
   return candidates;
 }
 
-function scoreFunction(func: NamedFunctionType, args: AstNode[]) {
+function scoreFunction(func: NamedFunctionType, args: AstNode[], context: TypeCheckerContext) {
   if (func.type.parameters.length != args.length) return Number.MAX_VALUE;
 
   let match = true;
@@ -1876,7 +1902,7 @@ function scoreFunction(func: NamedFunctionType, args: AstNode[]) {
         // Need to copy the argument node, as isAssignableTo
         // may modify its type hierarchy.
         arg.type = arg.type.copy();
-        if (isAssignableTo(arg, param)) {
+        if (isAssignableTo(arg, param, context)) {
           // Penalize generic parameters, which have type AnyType.
           score += isGeneric(param) ? 1 : 2;
         } else {
@@ -2087,9 +2113,26 @@ function inferGenericTypes(genericNode: AstNode, genericType: NamedType | NamedF
   return finalBindings;
 }
 
-function instantiateGenericType(genericType: NamedType | NamedFunctionType, genericTypeBindings: Map<String, Type>, context: TypeCheckerContext) {
+function instantiateGenericType(
+  node: AstNode,
+  genericType: NamedType | NamedFunctionType,
+  genericTypeBindings: Map<String, Type>,
+  context: TypeCheckerContext
+) {
   // Construct a type with the bindings
-  // FIXME ensure that all generic type names have a binding. E.g. type r[T, R] = <f: (p: T): R>
+  // FIXME ensure that all generic type names have a binding. E.g.
+  //
+  // type a[T] = <v: [T]>
+  // a([])
+  //
+  // Problem: this is also called during type reference resolution of nested
+  // generic types
+  // e.g.
+  //
+  // type k[I] = <v: I>
+  // type node[T] = <left: k[T], right: k[T], value: T>
+  //
+  // It's called for left and right with bindings set to T...
   let genericBoundType = genericType.copy();
   const replacedNamedTypes = new Set<Type>();
   const replace = (type: Type, bindings: Map<String, Type>): Type => {
@@ -2146,6 +2189,13 @@ function instantiateGenericType(genericType: NamedType | NamedFunctionType, gene
   genericBoundType = replace(genericBoundType, genericTypeBindings) as NamedType | NamedFunctionType;
   genericBoundType.isInstantiated = true;
   genericBoundType.updateGenericTypeBindings(genericTypeBindings);
+
+  if (!context.isInGenericFunctionOrTypeDeclaration() && isGeneric(genericBoundType)) {
+    throw new LittleFootError(
+      node.location,
+      `Could not infer all types for generic type ${genericType.signature}. Ensure empty list and map literals have an explicit type specifier."`
+    );
+  }
 
   // If this is a function, copy the AST as well and set generic type bindings
   if (genericBoundType.kind == "named function") {

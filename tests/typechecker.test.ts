@@ -72,6 +72,9 @@ describe("Typechecker tests", () => {
     var left = node([], 1, 1)
     var right = node([], 2, 1)
     var r = root(left, right)
+
+    type a[T] = <c: [T]>
+    a([:number])
     `);
     expect(errors.length).toBe(0);
   });
