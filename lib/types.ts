@@ -219,7 +219,7 @@ export class NamedType extends BaseType {
                 if (!binding) {
                   throw new LittleFootError(this.location, `Internal error: no binding for generic type parameter ${name}`);
                 }
-                binding.signature;
+                return binding.signature;
               })
               .join(",") +
             "]"

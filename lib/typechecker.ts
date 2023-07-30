@@ -1970,7 +1970,7 @@ function inferGenericTypes(genericNode: AstNode, genericType: NamedType | NamedF
   // generic tree, its concrete type counter part is recorded as a binding.
   const infer = (node: AstNode, genericType: Type, concreteType: Type, genericTypeBindings: Map<String, Type[]>) => {
     if (genericType.kind == "named type" && genericType.type == AnyType) {
-      // if (concreteType.kind == "named type" && concreteType.type == AnyType) return;
+      if (concreteType.kind == "named type" && concreteType.type == AnyType) return;
       let bindings = genericTypeBindings.get(genericType.name);
       if (!bindings) {
         bindings = [];
@@ -2177,12 +2177,20 @@ function instantiateGenericType(
         if (!replacedNamedTypes.has(type)) {
           replacedNamedTypes.add(type);
           type.type = replace(type.type, bindings);
-          type.genericTypeBindings = bindings;
+          const newBindings = new Map<String, Type>();
+          type.genericTypeBindings.forEach((oldBinding, name) => {
+            newBindings.set(name, replace(oldBinding, bindings));
+          });
+          type.genericTypeBindings = newBindings;
         }
         break;
       case "named function":
         type.type = replace(type.type, bindings) as FunctionType;
-        type.genericTypeBindings = bindings;
+        const newBindings = new Map<String, Type>();
+        type.genericTypeBindings.forEach((oldBinding, name) => {
+          newBindings.set(name, replace(oldBinding, bindings));
+        });
+        type.genericTypeBindings = newBindings;
         break;
       default:
         assertNever(type);
