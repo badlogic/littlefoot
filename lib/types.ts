@@ -206,16 +206,26 @@ export class NamedType extends BaseType {
   updateSignature(): void {
     if (this.updating) return;
     this.updating = true;
-    this.type.updateSignature();
     if (this.genericTypeBindings.size == 0) {
       this.signature = this.name + (this.genericTypeNames.length > 0 ? "[" + this.genericTypeNames.join(",") + "]" : "");
     } else {
       this.signature =
         this.name +
         (this.genericTypeNames.length > 0
-          ? "[" + this.genericTypeNames.map((name) => this.genericTypeBindings.get(name)?.signature).join(",") + "]"
+          ? "[" +
+            this.genericTypeNames
+              .map((name) => {
+                const binding = this.genericTypeBindings.get(name);
+                if (!binding) {
+                  throw new LittleFootError(this.location, `Internal error: no binding for generic type parameter ${name}`);
+                }
+                binding.signature;
+              })
+              .join(",") +
+            "]"
           : "");
     }
+    this.type.updateSignature();
     this.updating = false;
   }
 }
@@ -632,9 +642,9 @@ export function isAssignableTo(from: Type, to: Type): boolean {
   if (from.kind == "record" && to.kind == "record") {
     if (from.fields.length < to.fields.length) return false;
     let matchedFields = 0;
-    for (const fromField of from.fields) {
+    for (const toField of to.fields) {
       let found = false;
-      for (const toField of to.fields) {
+      for (const fromField of from.fields) {
         if (fromField.name !== toField.name) continue;
 
         // If the to field is a union and the from field is not, the

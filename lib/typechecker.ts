@@ -424,7 +424,7 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
       }
 
       // If this reference is generic and has bindings, instantiate the new type.
-      if (type.type != ResolvingTypeMarker && type.kind == "named type" && type.genericTypeNames.length > 0 && node.genericTypeBindings.length > 0) {
+      if (type.type != ResolvingTypeMarker && type.kind == "named type" && type.genericTypeNames.length > 0) {
         if (node.genericTypeBindings.length != type.genericTypeNames.length) {
           throw new LittleFootError(
             node.location,
@@ -455,6 +455,7 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
           const genericBindings = context.getGenericBindings();
           const type = types.get(node.name.value)! as NamedType;
           type.type = ResolvingTypeMarker;
+          // FIXME ensure there are no duplicate generic type names
           for (const genericType of node.genericTypeNames) {
             genericBindings.set(
               genericType.value,
@@ -1281,6 +1282,7 @@ function checkFunctionNode(node: FunctionLiteralNode | FunctionNode, context: Ty
       if (node.type.kind == "named function" && node.type.genericTypeBindings.size > 0) {
         node.type.genericTypeBindings.forEach((value, key) => genericBindings.set(key, value));
       } else {
+        // FIXME ensure there are no duplicate generic type names
         for (const genericType of node.genericTypeNames) {
           genericBindings.set(
             genericType.value,
@@ -1312,15 +1314,13 @@ function checkFunctionNode(node: FunctionLiteralNode | FunctionNode, context: Ty
     if (node.kind == "function declaration") {
       if (!(node.type.kind == "named function" && node.type.genericTypeBindings.size > 0)) {
         let genericTypes = new Set<String>(node.genericTypeNames.map((type) => type.value));
-        for (const genericType of node.genericTypeNames) {
-          for (const parameter of node.parameters) {
-            traverseType(parameter.type, (type) => {
-              if (type.kind == "named type") {
-                genericTypes.delete(type.name);
-              }
-              return true;
-            });
-          }
+        for (const parameter of node.parameters) {
+          traverseType(parameter.type, (type) => {
+            if (type.kind == "named type") {
+              genericTypes.delete(type.name);
+            }
+            return true;
+          });
         }
         if (genericTypes.size > 0) {
           let missingTypes = [];
@@ -1970,6 +1970,7 @@ function inferGenericTypes(genericNode: AstNode, genericType: NamedType | NamedF
   // generic tree, its concrete type counter part is recorded as a binding.
   const infer = (node: AstNode, genericType: Type, concreteType: Type, genericTypeBindings: Map<String, Type[]>) => {
     if (genericType.kind == "named type" && genericType.type == AnyType) {
+      // if (concreteType.kind == "named type" && concreteType.type == AnyType) return;
       let bindings = genericTypeBindings.get(genericType.name);
       if (!bindings) {
         bindings = [];
@@ -2119,6 +2120,8 @@ function instantiateGenericType(
   genericTypeBindings: Map<String, Type>,
   context: TypeCheckerContext
 ) {
+  // FIXME for named records, also create an instantiated constructor function
+  //
   // Construct a type with the bindings
   // FIXME ensure that all generic type names have a binding. E.g.
   //

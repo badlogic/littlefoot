@@ -6,7 +6,7 @@ describe("Typechecker tests", () => {
   it("Should check generics.", () => {
     const { errors, modules } = testCompile(`
     type r[T, R] = <f: (p: T): R>
-    var rr: r = <f: func(p: number)
+    var rr: r[number, string | number] = <f: func(p: number)
       if p > 0 then
         return "test"
       else
@@ -19,7 +19,6 @@ describe("Typechecker tests", () => {
 
     type s[T] = <a: T, b: [T]>
     var ss: s[number] = <a: 0, b: [0]>
-    var sa: s = <a: 0, b: [0]>
     var sc = <a: 0, b: [0]> as s[number]
 
     func add[T](a: T, b: T): T
@@ -146,6 +145,7 @@ describe("Typechecker tests", () => {
         end
       end
     `);
+    expect(errors.length).toBe(0);
   });
 
   it("Should perform structural typing.", () => {

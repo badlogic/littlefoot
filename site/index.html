@@ -5,28 +5,29 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>littlefoot</title>
     <link rel="stylesheet" type="text/css" href="build/index.css" />
+    <style>
+      /* Add some basic styling for demonstration purposes */
+      body {
+        background: #202020;
+        color: #ccc;
+        font-family: monospace;
+        white-space: pre;
+      }
+      .tree {
+        padding-left: 1em;
+        padding-top: 1em;
+      }
+      .treeNode {
+      }
+    </style>
   </head>
   <body style="display: flex; flex-direction: row; margin: 0; padding: 0; height: 100vh">
-    <div id="editor" style="flex: 0.5"></div>
-    <div style="display: flex; flex-direction: column; flex: 0.6">
-      <div
-        id="output"
-        style="
-          border-left: 1px solid #333;
-          border-bottom: 1px solid #333;
-          background: #202020;
-          color: #ccc;
-          overflow: scroll;
-          flex: 0.5;
-          white-space: pre;
-          font-family: monospace;
-        "
-      ></div>
-      <div
-        id="modules"
-        style="border-left: 1px solid #333; background: #202020; color: #ccc; overflow: scroll; flex: 0.5; white-space: pre; font-family: monospace"
-      ></div>
+    <div style="display: flex; flex-direction: column; flex: 0.4">
+      <div id="editor" style="flex: 0.8"></div>
+      <div id="errors" style="overflow: auto; padding: 1em"></div>
     </div>
+    <div id="output" style="border-left: 1px solid #333; border-bottom: 1px solid #333; overflow: auto; flex: 0.4"></div>
+    <div id="modules" class="tree" style="border-left: 1px solid #333; overflow: auto; flex: 0.2"></div>
   </body>
   <script src="build/index.js"></script>
 </html>
