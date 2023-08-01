@@ -11,7 +11,12 @@ export function indent(level: number = 1) {
 }
 
 export class LittleFootError {
-  constructor(public readonly location: SourceLocation, public readonly message: string) {}
+  constructor(
+    public readonly location: SourceLocation,
+    public readonly message: string,
+    public readonly supplementary: string = "",
+    public readonly cause: LittleFootError | null = null
+  ) {}
 
   toString() {
     const lines = this.location.source.indicesToLines(this.location.start, this.location.end);
@@ -31,6 +36,27 @@ export class LittleFootError {
       }
       highlight += "\n";
     }
+    if (this.supplementary.length > 0) {
+      highlight += "\n" + this.supplementary + "\n";
+    }
     return highlight;
+  }
+
+  toStringWithCauses() {
+    let errorMessage = this.toString();
+    let cause = this.cause;
+    let level = 1;
+    while (cause) {
+      const causeMessage = cause
+        .toString()
+        .trim()
+        .split("\n")
+        .map((line) => indent(level) + line)
+        .join("\n");
+      errorMessage += "\n" + indent(level) + "Cause:\n" + causeMessage;
+      level++;
+      cause = cause.cause;
+    }
+    return errorMessage;
   }
 }

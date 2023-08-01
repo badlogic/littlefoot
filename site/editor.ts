@@ -1,6 +1,6 @@
 import "monaco-editor/min/vs/editor/editor.main.css";
 import * as monaco from "monaco-editor";
-import { LittleFootError, keywords } from "../lib";
+import { LittleFootError, SourceLocation, keywords } from "../lib";
 (globalThis as any).self.MonacoEnvironment = { getWorkerUrl: () => "./build/editor.worker.js" };
 
 export class Editor {
@@ -44,9 +44,9 @@ export class Editor {
 
   highlightErrors(errors: LittleFootError[]) {
     const markers: monaco.editor.IMarkerData[] = [];
-    errors.forEach((error) => {
-      const startPos = this.editor.getModel()!.getPositionAt(error.location.start);
-      const endPos = this.editor.getModel()!.getPositionAt(error.location.end);
+    const markError = (location: SourceLocation, error: LittleFootError, markCauses: boolean) => {
+      const startPos = this.editor.getModel()!.getPositionAt(location.start);
+      const endPos = this.editor.getModel()!.getPositionAt(location.end);
       markers.push({
         severity: monaco.MarkerSeverity.Error,
         startLineNumber: startPos.lineNumber,
@@ -55,6 +55,31 @@ export class Editor {
         endColumn: endPos.column,
         message: error.message,
       });
+      if (error.supplementary.length > 0) {
+        markers.push({
+          severity: monaco.MarkerSeverity.Error,
+          startLineNumber: startPos.lineNumber,
+          startColumn: startPos.column,
+          endLineNumber: endPos.lineNumber,
+          endColumn: endPos.column,
+          message: error.supplementary,
+        });
+      }
+      if (error.cause && markCauses) {
+        let cause: LittleFootError | null = error.cause;
+        while (cause) {
+          markError(location, cause, false);
+          cause = cause.cause;
+        }
+      }
+    };
+    errors.forEach((error) => {
+      markError(error.location, error, true);
+      let cause = error.cause;
+      while (cause) {
+        markError(cause.location, cause, true);
+        cause = cause.cause;
+      }
     });
     monaco.editor.setModelMarkers(this.editor.getModel()!, "littlefoot", markers);
   }

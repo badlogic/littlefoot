@@ -41,7 +41,7 @@ function showErrors(errors: LittleFootError[]) {
   if (errors.length > 0) {
     editor.highlightErrors(errors);
     const html = errors
-      .map((error) => error.toString())
+      .map((error) => error.toStringWithCauses())
       .reduce((prev, curr) => prev + curr)
       .replace(/</g, "&lt;")
       .replace(/\n/g, "<br>");

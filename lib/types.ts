@@ -605,7 +605,12 @@ export function rawType(type: Type) {
 // function arguments and so on.
 export function isAssignableTo(from: Type, to: Type): boolean {
   // If to is the any type, anything is assignable
-  if ((to.kind == "named type" && to.type == AnyType) || to == AnyType) {
+  if (rawType(to) == AnyType) {
+    return true;
+  }
+
+  // If from is the any type, is is assignable to anything
+  if (rawType(from) == AnyType) {
     return true;
   }
 

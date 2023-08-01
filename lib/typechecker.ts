@@ -131,13 +131,13 @@ export class TypeCheckerContext {
     else return this.currentLoop[this.currentLoop.length - 1];
   }
 
-  isInGenericFunctionOrTypeDeclaration() {
+  isInGenericFunctionOrTypeDeclaration(ignoreInstantiated = false) {
     if (!this.nameFunctionOrType) return false;
     if (this.nameFunctionOrType.genericTypeNames.length == 0) return false;
     if (this.nameFunctionOrType.type == UnknownType) return true; // Happens when func is first checked in checkTypes()
     if (
       (this.nameFunctionOrType.type.kind == "named function" || this.nameFunctionOrType.type.kind == "named type") &&
-      !this.nameFunctionOrType.type.isInstantiated
+      (ignoreInstantiated || !this.nameFunctionOrType.type.isInstantiated)
     )
       return true;
     return false;
@@ -429,7 +429,7 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
     case "type reference": {
       const genericBindings = context.genericBindings;
       if (!types.has(node.name.value) && !genericBindings.get(node.name.value)) {
-        throw new LittleFootError(node.location, `Could not find type '${node.name.value}'.`);
+        throw new LittleFootError(node.location, `Can not find type '${node.name.value}'.`);
       }
       // Look for the type in the generic bindings first.
       let type = genericBindings.get(node.name.value) ? genericBindings.get(node.name.value)! : types.get(node.name.value)!;
@@ -616,7 +616,7 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
           // RECOVER: the type of the variable is given, so it doesn't matter that the
           // initializer expression has an error.
           context.compilerContext.errors.push(
-            new LittleFootError(node.initializer.location, `Can not assign a '${node.initializer.type.signature}' to a '${node.type.signature}'.`)
+            new LittleFootError(node.initializer.location, `Can not assign type '${node.initializer.type.signature}' to '${node.type.signature}'.`)
           );
         }
         node.type = node.typeNode.type;
@@ -641,8 +641,8 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
     }
     case "if": {
       checkNodeTypes(node.condition, context);
-      if (node.condition.type != BooleanType) {
-        throw new LittleFootError(node.condition.location, `'if' condition must be a boolean but is a '${node.condition.type.signature}'.`);
+      if (!(node.condition.type == BooleanType || isGeneric(node.condition.type))) {
+        throw new LittleFootError(node.condition.location, `'if' condition must be a boolean but has type '${node.condition.type.signature}'.`);
       }
 
       // Gather the "is" operators and check if they are negated.
@@ -681,7 +681,7 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
           if (!isAssignableTo(operator.isOperator.typeNode, variable.type, context)) {
             throw new LittleFootError(
               variable.location,
-              `Variable '${variable.name.value}' is a '${variable.type.signature}' and can never be a '${operator.narrowedType.signature}'.`
+              `Variable '${variable.name.value}' has type '${variable.type.signature}' and can never be type '${operator.narrowedType.signature}'.`
             );
           }
 
@@ -736,7 +736,7 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
     case "while":
       checkNodeTypes(node.condition, context);
       if (node.condition.type != BooleanType) {
-        throw new LittleFootError(node.condition.location, `'while' condition must be a boolean but is a '${node.condition.type.signature}'.`);
+        throw new LittleFootError(node.condition.location, `'while' condition must be a boolean but has type '${node.condition.type.signature}'.`);
       }
 
       context.pushLoop(node);
@@ -771,13 +771,13 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
       checkNodeTypes(node.to, context);
       if (node.step) checkNodeTypes(node.step, context);
       if (node.from.type != NumberType) {
-        throw new LittleFootError(node.from.location, `'from' must be a number but is a '${node.from.type.signature}'.`);
+        throw new LittleFootError(node.from.location, `'from' must be a number but has type '${node.from.type.signature}'.`);
       }
       if (node.to.type != NumberType) {
-        throw new LittleFootError(node.from.location, `'to' must be a number but is a '${node.to.type.signature}'.`);
+        throw new LittleFootError(node.from.location, `'to' must be a number but has type '${node.to.type.signature}'.`);
       }
       if (node.step && node.step.type != NumberType) {
-        throw new LittleFootError(node.from.location, `'step' must be a number but is a '${node.step.type.signature}'.`);
+        throw new LittleFootError(node.from.location, `'step' must be a number but has type '${node.step.type.signature}'.`);
       }
 
       context.pushLoop(node);
@@ -792,7 +792,7 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
     case "do":
       checkNodeTypes(node.condition, context);
       if (node.condition.type != BooleanType) {
-        throw new LittleFootError(node.condition.location, `'do' condition must be a boolean but is a '${node.condition.type.signature}'.`);
+        throw new LittleFootError(node.condition.location, `'do' condition must be a boolean but has type '${node.condition.type.signature}'.`);
       }
 
       context.pushLoop(node);
@@ -830,7 +830,7 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
       if (node.condition.type != BooleanType) {
         throw new LittleFootError(
           node.condition.location,
-          `Ternary operator ? condition must be a boolean but is a '${node.condition.type.signature}'.`
+          `Ternary operator ? condition must be a boolean but has type '${node.condition.type.signature}'.`
         );
       }
 
@@ -848,7 +848,7 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
           if (node.leftExpression.kind == "variable access") {
             const symbol = scopes.get(node.leftExpression.name.value);
             if (!symbol) {
-              throw new LittleFootError(node.leftExpression.name.location, `Could not find variable '${node.leftExpression.name.value}'.`);
+              throw new LittleFootError(node.leftExpression.name.location, `Can not find variable '${node.leftExpression.name.value}'.`);
             }
             if (symbol.kind == "loop variable") {
               throw new LittleFootError(
@@ -865,14 +865,14 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
             if (!isAssignableTo(node.rightExpression, node.leftExpression.type, context)) {
               throw new LittleFootError(
                 node.rightExpression.location,
-                `Can not assign a '${node.rightExpression.type.signature}' to a '${node.leftExpression.type.signature}'`
+                `Can not assign type '${node.rightExpression.type.signature}' to type '${node.leftExpression.type.signature}'`
               );
             }
           } else if (node.leftExpression.kind == "member access") {
             if (!isAssignableTo(node.rightExpression, node.leftExpression.type, context)) {
               throw new LittleFootError(
                 node.rightExpression.location,
-                `Can not assign a '${node.rightExpression.type.signature}' to a '${node.leftExpression.type.signature}'`
+                `Can not assign type '${node.rightExpression.type.signature}' to type '${node.leftExpression.type.signature}'`
               );
             }
           } else if (node.leftExpression.kind == "map or list access") {
@@ -881,14 +881,17 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
             // use for the assignment.
             if (node.leftExpression.target.type.kind == "list") {
               if (!isAssignableTo(node.rightExpression, node.leftExpression.target.type.elementType, context)) {
-                `Can not assign a '${node.rightExpression.type.signature}' to an array with '${node.leftExpression.target.type.elementType.signature}'`;
+                `Can not assign type '${node.rightExpression.type.signature}' to an array with '${node.leftExpression.target.type.elementType.signature}'`;
               }
             } else if (node.leftExpression.target.type.kind == "map") {
               if (!isAssignableTo(node.rightExpression, node.leftExpression.target.type.valueType, context)) {
-                `Can not assign a '${node.rightExpression.type.signature}' to an array with '${node.leftExpression.target.type.valueType.signature}'`;
+                `Can not assign type '${node.rightExpression.type.signature}' to an array with '${node.leftExpression.target.type.valueType.signature}'`;
               }
             } else {
-              throw new LittleFootError(node.leftExpression.target.location, `Can not use [] operator on a '${node.leftExpression.target.type}'.`);
+              throw new LittleFootError(
+                node.leftExpression.target.location,
+                `Can not use [] operator with type '${node.leftExpression.target.type}'.`
+              );
             }
           } else {
             throw new LittleFootError(node.leftExpression.location, "Left side of assignment must be a variable, record field, list, or map.");
@@ -934,13 +937,13 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
             if (!closestFunc) {
               throw new LittleFootError(
                 node.location,
-                `Operator '${node.operator.value}' undefined for left type '${leftType.signature}' and right type '${rightType.signature}'.`
+                `Operator '${node.operator.value}' undefined for left operand '${leftType.signature}' and right operand '${rightType.signature}'.`
               );
             }
             if (closestFunc.length > 1) {
               throw new LittleFootError(
                 node.location,
-                `Found more than one implementation for operator '${node.operator.value}' for left type '${leftType.signature}' and right type '${rightType.signature}'.`
+                `Found more than one implementation for operator '${node.operator.value}' for left operand '${leftType.signature}' and right operand '${rightType.signature}'.`
               );
             }
             node.type = closestFunc[0].type.returnType;
@@ -958,7 +961,7 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
           if (!(node.expression.type == BooleanType || isGeneric(node.expression.type))) {
             throw new LittleFootError(
               node.expression.location,
-              `Operand of 'not' operator must be a boolean, but is a '${node.expression.type.signature}'`
+              `Operand of 'not' operator must be a boolean, but has type '${node.expression.type.signature}'`
             );
           }
           node.type = BooleanType;
@@ -968,7 +971,7 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
           if (!(node.expression.type == NumberType || isGeneric(node.expression.type))) {
             throw new LittleFootError(
               node.expression.location,
-              `Operand of '${node.operator.value}' operator must be a number, but is a '${node.expression.type.signature}'`
+              `Operand of '${node.operator.value}' operator must be a number, but has type '${node.expression.type.signature}'`
             );
           }
           node.type = NumberType;
@@ -998,7 +1001,7 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
       if (!isAssignableTo(node.leftExpression, node.typeNode.type, context)) {
         throw new LittleFootError(
           node.leftExpression.location,
-          `Can not interpret a '${node.leftExpression.type.signature}' as a '${node.typeNode.type.signature}'`
+          `Can not interpret type '${node.leftExpression.type.signature}' as type '${node.typeNode.type.signature}'`
         );
       }
       node.type = node.typeNode.type;
@@ -1057,7 +1060,7 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
     case "variable access":
       const symbol = scopes.get(node.name.value);
       if (!symbol) {
-        throw new LittleFootError(node.name.location, `Could not find variable '${node.name.value}'.`);
+        throw new LittleFootError(node.name.location, `Can not find variable '${node.name.value}'.`);
       }
       node.type = symbol.type;
       break;
@@ -1074,10 +1077,10 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
           }
         }
         if (!found) {
-          throw new LittleFootError(node.member.location, `Field '${node.member.value}' does not exist on a '${node.object.type.signature}'.`);
+          throw new LittleFootError(node.member.location, `Field '${node.member.value}' does not exist on type '${node.object.type.signature}'.`);
         }
       } else {
-        throw new LittleFootError(node.member.location, `Field '${node.member.value}' does not exist on a '${node.object.type.signature}'.`);
+        throw new LittleFootError(node.member.location, `Field '${node.member.value}' does not exist on type '${node.object.type.signature}'.`);
       }
       break;
     case "map or list access":
@@ -1087,18 +1090,18 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
       checkNodeTypes(node.target, context);
       if (node.target.type.kind == "list") {
         if (node.keyOrIndex.type != NumberType) {
-          throw new LittleFootError(node.keyOrIndex.location, `Index into list must be a number, but found a '${node.keyOrIndex.type.signature}'.`);
+          throw new LittleFootError(node.keyOrIndex.location, `Index into list must be a number, but has type '${node.keyOrIndex.type.signature}'.`);
         }
         node.type = node.target.type.elementType;
       } else if (node.target.type.kind == "map") {
         if (node.keyOrIndex.type != StringType) {
-          throw new LittleFootError(node.keyOrIndex.location, `Index into map must be a string, but found a '${node.keyOrIndex.type.signature}'.`);
+          throw new LittleFootError(node.keyOrIndex.location, `Index into map must be a string, but has type '${node.keyOrIndex.type.signature}'.`);
         }
         node.type = node.target.type.valueType;
       } else {
         throw new LittleFootError(
           node.target.location,
-          `The '[]' operator can only be used with lists or maps, but was used with a ${node.target.type.signature}.`
+          `The '[]' operator can only be used with lists or maps, but was used with type ${node.target.type.signature}.`
         );
       }
       break;
@@ -1122,7 +1125,7 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
             const arg = node.args[i];
             const param = functionType.parameters[i];
             if (!isAssignableTo(arg, param.type, context)) {
-              throw new LittleFootError(arg.location, `Expected a ${param.type.signature}, got a ${arg.type.signature}`);
+              throw new LittleFootError(arg.location, `Expected type ${param.type.signature}, got ${arg.type.signature}`);
             }
           }
           checkNodeTypes(node.target, context);
@@ -1139,7 +1142,7 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
         // Function call on function returned through map or list element access.
         checkNodeTypes(node.target, context);
         if (node.target.type.kind != "function") {
-          throw new LittleFootError(node.target.location, `Target of function call is not a function but a ${node.target.type.signature}.`);
+          throw new LittleFootError(node.target.location, `Target of function call is not a function but type '${node.target.type.signature}'.`);
         }
         const functionType = node.target.type;
         if (functionType.parameters.length != node.args.length) {
@@ -1149,7 +1152,7 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
           const arg = node.args[i];
           const param = functionType.parameters[i];
           if (!isAssignableTo(arg, param.type, context)) {
-            throw new LittleFootError(arg.location, `Expected a ${param.type.signature}, got a ${arg.type.signature}`);
+            throw new LittleFootError(arg.location, `Expected type ${param.type.signature}, got ${arg.type.signature}`);
           }
         }
         node.type = functionType.returnType;
@@ -1174,7 +1177,7 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
             const arg = node.args[i];
             const param = functionType.parameters[i];
             if (!isAssignableTo(arg, param.type, context)) {
-              throw new LittleFootError(arg.location, `Expected a ${param.type.signature}, got a ${arg.type.signature}`);
+              throw new LittleFootError(arg.location, `Expected type ${param.type.signature}, got ${arg.type.signature}`);
             }
           }
           node.target.type = functionType;
@@ -1210,7 +1213,8 @@ function reportFunctionNotFound(location: SourceLocation, name: string, args: As
   if (sameArgCountCandidates.length == 0) {
     return new LittleFootError(
       location,
-      `Could not find function '${name}(${args.map((arg) => arg.type.signature).join(",")})' with ${args.length} arguments. ${
+      `Can not find function '${name}(${args.map((arg) => arg.type.signature).join(",")})' with ${args.length} arguments.`,
+      `${
         functions.get(name)
           ? "Candidates: \n" +
             functions
@@ -1236,9 +1240,9 @@ function reportFunctionNotFound(location: SourceLocation, name: string, args: As
   for (const arg of args) {
     originalArgTypes.push(arg.type);
   }
-  let errorMessage = `Could not find function '${name}' with matching arguments '(${args.map((arg) => arg.type.signature).join(",")})'. Candidates:`;
+  let supplementary = `Candidates:`;
   for (const func of sameArgCountCandidates) {
-    errorMessage += "\n\n" + indent(1) + func.signatureWithParameterNames() + " (" + func.location.toString() + ")\n";
+    supplementary += "\n\n" + indent(1) + func.signatureWithParameterNames() + " (" + func.location.toString() + ")\n";
     for (let i = 0; i < args.length; i++) {
       const param = func.type.parameters[i].type;
       const arg = args[i];
@@ -1246,7 +1250,7 @@ function reportFunctionNotFound(location: SourceLocation, name: string, args: As
         arg.type = arg.type.copy();
         try {
           if (!isAssignableTo(arg, param, context)) {
-            errorMessage += `\n${indent(2)}Parameter '${func.type.parameters[i].name}': expected a '${param.signature}', but got a '${
+            supplementary += `${indent(2)}Parameter '${func.type.parameters[i].name}': expected type '${param.signature}', but type '${
               arg.type.signature
             }'.`;
           }
@@ -1266,12 +1270,12 @@ function reportFunctionNotFound(location: SourceLocation, name: string, args: As
           }
 
           if (arg.kind == "list literal" && arg.type.kind == "list" && arg.elements.length == 0) {
-            errorMessage += `\n${indent(2)}Parameter '${func.type.parameters[i].name}': could not infer type of empty list\n${exceptionMessage}`;
+            supplementary += `${indent(2)}Parameter '${func.type.parameters[i].name}': can not infer type of empty list\n${exceptionMessage}`;
           } else {
             if (arg.kind == "map literal" && arg.type.kind == "map" && arg.values.length == 0) {
-              errorMessage += `\n${indent(2)}Parameter '${func.type.parameters[i].name}': could not infer type of empty map\n${exceptionMessage}`;
+              supplementary += `${indent(2)}Parameter '${func.type.parameters[i].name}': can not infer type of empty map\n${exceptionMessage}`;
             } else {
-              errorMessage += `\n${indent(2)}Parameter '${func.type.parameters[i].name}':\n${exceptionMessage}`;
+              supplementary += `${indent(2)}Parameter '${func.type.parameters[i].name}':\n${exceptionMessage}`;
             }
           }
         }
@@ -1281,7 +1285,8 @@ function reportFunctionNotFound(location: SourceLocation, name: string, args: As
       args[i].type = originalArgTypes[i];
     }
   }
-  return new LittleFootError(location, errorMessage);
+  let errorMessage = `Can not find function '${name}' with matching arguments '(${args.map((arg) => arg.type.signature).join(",")})'.`;
+  return new LittleFootError(location, errorMessage, supplementary);
 }
 
 function inferClosestFunction(location: SourceLocation, target: AstNode, name: string, args: AstNode[], context: TypeCheckerContext) {
@@ -1296,9 +1301,8 @@ function inferClosestFunction(location: SourceLocation, target: AstNode, name: s
   if (closestFunc.length > 1) {
     throw new LittleFootError(
       location,
-      `More than one function called '${name}' matches the arguments. Candidates: \n${closestFunc
-        .map((func) => indent(1) + func.signature + " (" + func.location.toString() + ")")
-        .join("\n")}`
+      `More than one function called '${name}' matches the arguments.`,
+      `Candidates: \n${closestFunc.map((func) => indent(1) + func.signature + " (" + func.location.toString() + ")").join("\n")}`
     );
   }
 
@@ -1321,27 +1325,16 @@ function inferClosestFunction(location: SourceLocation, target: AstNode, name: s
     genericBindings = inferGenericTypes(closestFunc[0].ast, closestFunc[0], target, concretefunctionType);
     closestFunc[0] = instantiateGenericType(target, closestFunc[0], genericBindings, context) as NamedFunctionType;
     try {
+      context.nameFunctionOrType = closestFunc[0].ast;
       checkFunctionDeclarationNode(closestFunc[0].ast, context, true);
     } catch (e) {
-      let exceptionMessage = "";
-      if (e instanceof LittleFootError) {
-        exceptionMessage = e
-          .toString()
-          .trim()
-          .split("\n")
-          .map((line) => indent(1) + line)
-          .join("\n");
-      } else {
-        exceptionMessage = ((e as any).message as string)
-          .trim()
-          .split("\n")
-          .map((line) => indent(3) + line)
-          .join("\n");
-      }
-      throw new LittleFootError(
-        location,
-        `Couldn't instantiate generic function ${closestFunc[0].signatureWithParameterNames()}:\n${exceptionMessage}`
-      );
+      const cause: LittleFootError =
+        e instanceof LittleFootError
+          ? e
+          : new LittleFootError(new SourceLocation(location.source, 0, 1), "Internal error: " + (e as any).message + "\n" + (e as any).stack);
+      throw new LittleFootError(location, `Can not instantiate generic function ${closestFunc[0].signatureWithParameterNames()}`, "", cause);
+    } finally {
+      context.nameFunctionOrType = null;
     }
   }
   return closestFunc[0];
@@ -1506,18 +1499,22 @@ function checkOrInferFunctionReturnType(node: FunctionNode | FunctionLiteralNode
 
 function checkBlock(block: StatementNode[], context: TypeCheckerContext) {
   for (const statement of block) {
-    // FIXME implement recovery for statements with errors we can recover from
-    // try {
-    checkNodeTypes(statement, context);
-    /*} catch (e) {
-      if (e instanceof LittleFootError) {
-        context.compilerContext.errors.push(e);
+    try {
+      checkNodeTypes(statement, context);
+    } catch (e) {
+      const error: LittleFootError =
+        e instanceof LittleFootError
+          ? e
+          : new LittleFootError(
+              new SourceLocation(statement.location.source, 0, 1),
+              "Internal error: " + (e as any).message + "\n" + (e as any).stack
+            );
+      if (statement.kind == "return" || statement.kind == "variable declaration" || context.isInGenericFunctionOrTypeDeclaration(true)) {
+        throw error;
       } else {
-        context.compilerContext.errors.push(
-          new LittleFootError(new SourceLocation(statement.location.source, 0, 1), "Internal error: " + (e as any).message + "\n" + (e as any).stack)
-        );
+        context.compilerContext.errors.push(error);
       }
-    }*/
+    }
   }
 }
 
@@ -1608,16 +1605,15 @@ function inferTypesOfEmptyListAndMapLiterals(from: AstNode, to: Type, context: T
           // If there are > 1 list types, the type is undecideable
           throw new LittleFootError(
             from.location,
-            `Can not infer type of empty list literal from target type ${to.signature}. Candidates:\n${listTypes
-              .map((type) => indent(1) + type.signature)
-              .join("\n")}`
+            `Can not infer type of empty list literal from target type ${to.signature}.`,
+            `Candidates:\n${listTypes.map((type) => indent(1) + type.signature).join("\n")}`
           );
         }
       }
 
       // `to` can be a generic type parameter
       if (toType == AnyType) {
-        throw new LittleFootError(from.location, `Can not infer empty list literal type from generic parameter ${toType.name}.`);
+        throw new LittleFootError(from.location, `Can not infer empty list literal type from generic parameter ${to.signature}.`);
       }
 
       return true;
@@ -1654,16 +1650,15 @@ function inferTypesOfEmptyListAndMapLiterals(from: AstNode, to: Type, context: T
           // If there are > 1 list types, the type is undecideable
           throw new LittleFootError(
             from.location,
-            `Can not infer type of empty map literal from target type ${to.signature}. Candidates:\n${mapTypes
-              .map((type) => indent(1) + type.signature)
-              .join("\n")}`
+            `Can not infer type of empty map literal from target type ${to.signature}.`,
+            `Candidates:\n${mapTypes.map((type) => indent(1) + type.signature).join("\n")}`
           );
         }
       }
 
       // `to` can be a generic type parameter
       if (toType == AnyType) {
-        throw new LittleFootError(from.location, `Can not infer empty list literal type from generic parameter ${toType.name}.`);
+        throw new LittleFootError(from.location, `Can not infer empty list literal type from generic parameter ${to.signature}.`);
       }
       return true;
     }
@@ -1765,8 +1760,8 @@ function expandLiteralValueTypesToUnions(from: AstNode, to: Type, context: TypeC
               if (candidates.length > 1) {
                 throw new LittleFootError(
                   from.location,
-                  `Must expand type ${from.type.signature} to a type in union ${toType.elementType.signature}, but multiple candidates were found. Candidates:\n` +
-                    candidates.map((type) => indent(1) + type.signature).join("\n")
+                  `Must expand type ${from.type.signature} to a type in union ${toType.elementType.signature}, but multiple candidates were found.`,
+                  `Candidates:\n` + candidates.map((type) => indent(1) + type.signature).join("\n")
                 );
               }
             }
@@ -1837,8 +1832,8 @@ function expandLiteralValueTypesToUnions(from: AstNode, to: Type, context: TypeC
               if (candidates.length > 1) {
                 throw new LittleFootError(
                   from.location,
-                  `Must expand type ${from.type.signature} to a type in union ${toValueType.signature}, but multiple candidates were found. Candidates:\n` +
-                    candidates.map((type) => type.signature).join("\n")
+                  `Must expand type ${from.type.signature} to a type in union ${toValueType.signature}, but multiple candidates were found.`,
+                  `Candidates:\n` + candidates.map((type) => type.signature).join("\n")
                 );
               }
             }
@@ -1929,8 +1924,8 @@ function expandLiteralValueTypesToUnions(from: AstNode, to: Type, context: TypeC
         if (candidates.length > 1) {
           throw new LittleFootError(
             from.location,
-            `Must expand type ${from.type.signature} to a type in union ${to.signature}, but multiple candidates were found. Candidates:\n` +
-              candidates.map((type) => indent(1) + type.signature).join("\n")
+            `Must expand type ${from.type.signature} to a type in union ${to.signature}, but multiple candidates were found.`,
+            `Candidates:\n` + candidates.map((type) => indent(1) + type.signature).join("\n")
           );
         }
       }
@@ -2142,7 +2137,7 @@ function inferGenericTypes(genericNode: AstNode, genericType: NamedType | NamedF
               if (!concreteBinding) {
                 throw new LittleFootError(
                   node.location,
-                  `Internal error: couldn't find concrete binding for generic type ${genericBinding.name} in named type.`
+                  `Internal error: can not find concrete binding for generic type ${genericBinding.name} in named type.`
                 );
               }
               let bindings = genericTypeBindings.get(genericBinding.type.name);
@@ -2278,7 +2273,7 @@ function instantiateGenericType(
   if (!context.isInGenericFunctionOrTypeDeclaration() && isGeneric(genericBoundType)) {
     throw new LittleFootError(
       node.location,
-      `Could not infer all types for generic ${genericType.kind == "named function" ? "function" : "type"} '${
+      `Can not infer all types for generic ${genericType.kind == "named function" ? "function" : "type"} '${
         genericType.signature
       }' from empty list or map literals.`
     );
