@@ -640,7 +640,6 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
       break;
     }
     case "if": {
-      // FIXME this should be in a try catch and reset the variable types in finally, so we can do recovery properly
       checkNodeTypes(node.condition, context);
       if (node.condition.type != BooleanType) {
         throw new LittleFootError(node.condition.location, `'if' condition must be a boolean but is a '${node.condition.type.signature}'.`);
@@ -654,76 +653,81 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
         narrowedType: Type | null;
         negatedType: Type | null;
       }[] = [];
-      let negated = false;
-      traverseAst(node.condition, (node) => {
-        if (node.kind == "unary operator" && node.operator.value == "not") negated = !negated;
-        if (node.kind == "is operator") {
-          isOperators.push({ isNegated: negated, isOperator: node, originalType: node.leftExpression.type, narrowedType: null, negatedType: null });
-        }
-        return true;
-      });
 
-      // Temporarily set the types of each variable found in the "is" operators
-      // to the type specified in the operator.
-      for (const operator of isOperators) {
-        if (operator.isOperator.leftExpression.kind != "variable access") {
-          throw new LittleFootError(operator.isOperator.leftExpression.location, "Must be a variable.");
-        }
-        const variable = scopes.get((operator.isOperator.leftExpression as VariableAccessNode).name.value)!;
-        const variableType = rawType((operator.originalType = variable.type));
-        if (!(variableType.kind == "union" || isGeneric(variableType))) {
-          throw new LittleFootError(operator.isOperator.leftExpression.location, "Variable type must be a union.");
-        }
-        operator.narrowedType = operator.isOperator.typeNode.type;
-        if (!isAssignableTo(operator.isOperator.typeNode, variable.type, context)) {
-          throw new LittleFootError(
-            variable.location,
-            `Variable '${variable.name.value}' is a '${variable.type.signature}' and can never be a '${operator.narrowedType.signature}'.`
-          );
-        }
-
-        if (variableType.kind == "union") {
-          const newTypes = variableType.types.filter((type) => !typeIsAssignableTo(type, operator.narrowedType!));
-          if (newTypes.length == 0 && (operator.isNegated || node.falseBlock.length > 0)) {
-            throw new LittleFootError(
-              operator.isOperator.location,
-              `Negation of 'is' operator results in empty type for '${variable.name.value}' in the ${operator.isNegated ? "true" : "false"} branch.`
-            ); // TODO better message
+      // Try/finally, as we need to reset the variable types so we can do proper recovery on the
+      // statement level.
+      try {
+        let negated = false;
+        traverseAst(node.condition, (node) => {
+          if (node.kind == "unary operator" && node.operator.value == "not") negated = !negated;
+          if (node.kind == "is operator") {
+            isOperators.push({ isNegated: negated, isOperator: node, originalType: node.leftExpression.type, narrowedType: null, negatedType: null });
           }
-          operator.negatedType = newTypes.length == 1 ? newTypes[0] : new UnionType(newTypes);
+          return true;
+        });
+
+        // Temporarily set the types of each variable found in the "is" operators
+        // to the type specified in the operator.
+        for (const operator of isOperators) {
+          if (operator.isOperator.leftExpression.kind != "variable access") {
+            throw new LittleFootError(operator.isOperator.leftExpression.location, "Must be a variable.");
+          }
+          const variable = scopes.get((operator.isOperator.leftExpression as VariableAccessNode).name.value)!;
+          const variableType = rawType((operator.originalType = variable.type));
+          if (!(variableType.kind == "union" || isGeneric(variableType))) {
+            throw new LittleFootError(operator.isOperator.leftExpression.location, "Variable type must be a union.");
+          }
+          operator.narrowedType = operator.isOperator.typeNode.type;
+          if (!isAssignableTo(operator.isOperator.typeNode, variable.type, context)) {
+            throw new LittleFootError(
+              variable.location,
+              `Variable '${variable.name.value}' is a '${variable.type.signature}' and can never be a '${operator.narrowedType.signature}'.`
+            );
+          }
+
+          if (variableType.kind == "union") {
+            const newTypes = variableType.types.filter((type) => !typeIsAssignableTo(type, operator.narrowedType!));
+            if (newTypes.length == 0 && (operator.isNegated || node.falseBlock.length > 0)) {
+              throw new LittleFootError(
+                operator.isOperator.location,
+                `Negation of 'is' operator results in empty type for '${variable.name.value}' in the ${operator.isNegated ? "true" : "false"} branch.`
+              ); // TODO better message
+            }
+            operator.negatedType = newTypes.length == 1 ? newTypes[0] : new UnionType(newTypes);
+          }
+
+          variable.type = operator.isNegated && operator.negatedType ? operator.negatedType : operator.narrowedType;
         }
 
-        variable.type = operator.isNegated && operator.negatedType ? operator.negatedType : operator.narrowedType;
-      }
+        scopes.push();
+        checkBlock(node.trueBlock, context);
+        scopes.pop();
 
-      scopes.push();
-      checkBlock(node.trueBlock, context);
-      scopes.pop();
+        // Reset the variable types narrowed down in "is" operators
+        for (const operator of isOperators) {
+          const variable = scopes.get((operator.isOperator.leftExpression as VariableAccessNode).name.value)!;
+          variable.type = operator.originalType;
+        }
 
-      // Reset the variable types narrowed down in "is" operators
-      for (const operator of isOperators) {
-        const variable = scopes.get((operator.isOperator.leftExpression as VariableAccessNode).name.value)!;
-        variable.type = operator.originalType;
-      }
+        scopes.push();
+        checkBlock(node.elseIfs, context);
+        scopes.pop();
 
-      scopes.push();
-      checkBlock(node.elseIfs, context);
-      scopes.pop();
+        // Set the negated types for the else block
+        for (const operator of isOperators) {
+          const variable = scopes.get((operator.isOperator.leftExpression as VariableAccessNode).name.value)!;
+          variable.type = operator.isNegated && operator.negatedType ? operator.narrowedType! : operator.negatedType!;
+        }
 
-      // Set the negated types for the else block
-      for (const operator of isOperators) {
-        const variable = scopes.get((operator.isOperator.leftExpression as VariableAccessNode).name.value)!;
-        variable.type = operator.isNegated && operator.negatedType ? operator.narrowedType! : operator.negatedType!;
-      }
-
-      scopes.push();
-      checkBlock(node.falseBlock, context);
-      scopes.pop();
-
-      // Reset the variable types
-      for (const operator of isOperators) {
-        const variable = scopes.get((operator.isOperator.leftExpression as VariableAccessNode).name.value)!;
-        variable.type = operator.originalType;
+        scopes.push();
+        checkBlock(node.falseBlock, context);
+        scopes.pop();
+      } finally {
+        // Reset the variable types
+        for (const operator of isOperators) {
+          const variable = scopes.get((operator.isOperator.leftExpression as VariableAccessNode).name.value)!;
+          variable.type = operator.originalType;
+        }
       }
 
       node.type = NothingType;
