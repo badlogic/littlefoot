@@ -1,7 +1,6 @@
-import { Attribute } from "./parser";
 import { SourceLocation } from "./source";
 import { BoolToken, IdentifierToken, NothingToken, NumberToken, OperatorToken, StringToken, Token } from "./tokenizer";
-import { NameAndType, NamedType, Type, Types, UnknownType } from "./types";
+import { Type, UnknownType } from "./types";
 
 export type AstNode = ImportNode | ImportedNameNode | InternalNode | TopLevelNode;
 

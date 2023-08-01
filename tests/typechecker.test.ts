@@ -3,6 +3,25 @@ import { ListType, MapType, NameAndType, NamedType, NothingType, NumberType, Rec
 import { testCompile } from "./utils";
 
 describe("Typechecker tests", () => {
+  it("Should handle is operator correctly.", () => {
+    const { errors, modules } = testCompile(`
+    type t = number | string | nothing
+
+    var x: t = 0
+
+    if not x is string then
+      var y = x
+      if y is number then
+        print(y)
+      else
+        print("Got nothing")
+      end
+    else
+      print(x)
+    end
+    `);
+    expect(errors.length).toBe(0);
+  });
   it("Should check generics.", () => {
     const { errors, modules } = testCompile(`
     type r[T, R] = <f: (p: T): R>
@@ -66,14 +85,56 @@ describe("Typechecker tests", () => {
     filter(numbers, func(element: number, index: number) return element >= 3 end)
     forEach(numbers, func(n: number, index: number) print(n) end);
 
-    type node[L, R] = <children: [node], lValue: L, rValue: R>
+    type node[L, R] = <children: [node[L, R]], lValue: L, rValue: R>
     type root[V] = <left: node[V, V], right: node[V, V]>
-    var left = node([], 1, 1)
-    var right = node([], 2, 1)
+    var left = node([:node[number, number]], 1, 1)
+    var right = node([:node[number, number]], 2, 1)
     var r = root(left, right)
 
-    type a[T] = <c: [T]>
-    a([:number])
+    type a[T] = <x: T>
+    type b[T] = <v: a[T]>
+    type c[T] = b[T]
+
+    func bb[T](v: T): b[T] return b(a(0)) end
+
+    var aa = a(10)
+    var bb = b(aa)
+
+    type opt[L] = <value: L | nothing>
+    var a = 1;
+    a.opt()
+
+    func fuu[T](p: [(p: T | nothing): nothing], v: T): nothing
+      for i from 0 to p.length() do
+        p[i](v)
+      end
+      for each f in p do
+        f(v)
+      end
+    end
+
+    const funcs = [
+      func(p: number | nothing): nothing end
+    ]
+    fuu(funcs, 0)
+
+    type option[T] = T | nothing
+
+    func fooz(value: option[number])
+      if value is number then
+        print(value)
+      else
+        print("Got nothing")
+      end
+    end
+
+    fooz(nothing)
+
+    type li[V] = [V]
+    func barz[T](value: li[T]): nothing
+    end
+
+    barz([:number])
     `);
     expect(errors.length).toBe(0);
   });
@@ -118,32 +179,60 @@ describe("Typechecker tests", () => {
 
   it("Should use stdlib operators, functions, types, and consts", () => {});
 
+  it("Should check duplicate generic functions", () => {
+    const { errors } = testCompile(`
+    func foo(a: number)
+    end
+
+    type a[T] = <x: T>
+
+    func foo[Z](a: Z, b: [Z], c: {Z}, d: a[Z], e: a[Z]): nothing
+    end
+
+    func foo[V](a: V, b: [V], c: {V}, d: a[V], e: a[V]): nothing
+    end`);
+    expect(errors.length).toBe(1);
+  });
+
   it("Should perform more structural typing.", () => {
     const { errors } = testCompile(`
-      type color = <r: number, g: number, b: number>
-      type colored = <color: color>
-      type car = colored + <kind: string>
-      type bike = colored + <kind: string, foldable: boolean>
+    type color = <r: number, g: number, b: number>
+    type colored = <color: color>
+    type car = colored + <kind: string>
+    type bike = colored + <kind: string, foldable: boolean>
 
-      var brompton = bike(color(255, 0, 0), "brompton", true)
-      var beetle = car(color(255, 0, 255), "beetle")
-      var things = [beetle, brompton]
+    var brompton = bike(color(255, 0, 0), "brompton", true)
+    var beetle = car(color(255, 0, 255), "beetle")
 
-      printColor(things)
-      foo(things)
+    func toString(colored: colored): string
+      return
+        colored.color.r.toString() + ", " +
+        colored.color.g.toString() + ", " +
+        colored.color.b.toString()
+    end
 
-      func foo(v: [colored])
-      end
+    func printColor(coloredThing: colored)
+      print(coloredThing.toString())
+    end
+    printColor(beetle)
 
-      func printColor(coloredThing: colored | [colored])
-        if coloredThing is colored then
-          # print the thing
-        elseif coloredThing is [colored] then
-          for each thing in coloredThing do
-            # print the thing
+    func foo(things: [colored] | [colored | number])
+      if things is [colored] then
+        for each thing in things do
+          thing.toString()
+        end
+      elseif things is [colored | number] then
+        for each thing in things do
+          if thing is colored then
+            thing.toString()
           end
         end
       end
+    end
+    const cars = [beetle, beetle];
+    foo(cars)
+    foo([beetle, beetle] as [car])
+    foo([beetle, brompton])
     `);
     expect(errors.length).toBe(0);
   });
@@ -193,10 +282,13 @@ describe("Typechecker tests", () => {
 
       var list = [
         func(a: number) return a + 1 end,
-        func(a: number) return a + 2 end,
+        func(a: string) return a + "test" end,
         func(a: number) return a + 3 end
       ]
-      list[0](0)
+      var fg = list[0]
+      if fg is (a: number): number then
+        fg(0)
+      end
 
       var map = {
         "a": func(a: number) return a + 1 end,

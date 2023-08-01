@@ -1,5 +1,4 @@
-export const standardLibSource = `
-export external operator or(left: boolean, right: boolean): boolean;
+export const standardLibSource = `export external operator or(left: boolean, right: boolean): boolean;
 export external operator and(left: boolean, right: boolean): boolean;
 export external operator xor(left: boolean, right: boolean): boolean;
 export external operator <(left: number, right: number): boolean;
@@ -15,6 +14,8 @@ export external operator %(left: number, right: number): number;
 
 # String functions
 export external func length(str: string): number;
+export external func toString(n: number): string;
+export external func toString(n: boolean): string;
 
 # List functions
 export external func length[T](list: [T]): number;

@@ -1,4 +1,4 @@
-import { AstNode, FunctionLiteralNode, FunctionNode, TypeNode } from "./ast";
+import { FunctionNode, TypeNode } from "./ast";
 import { LittleFootError } from "./error";
 import { SourceLocation } from "./source";
 
@@ -162,8 +162,7 @@ export class NamedType extends BaseType {
   public constructorFunction: NamedFunctionType | null = null;
   constructor(
     public readonly name: string,
-    public readonly genericTypeNames: string[],
-    public genericTypeBindings: Map<String, Type>,
+    public genericTypes: NameAndType[],
     public isInstantiated: boolean,
     public type: Type,
     public typeNode: TypeNode,
@@ -184,8 +183,7 @@ export class NamedType extends BaseType {
 
     const copiedType = new NamedType(
       this.name,
-      this.genericTypeNames,
-      this.genericTypeBindings,
+      this.genericTypes.map((type) => new NameAndType(type.name, type.type)),
       this.isInstantiated,
       UnknownType,
       this.typeNode,
@@ -198,35 +196,35 @@ export class NamedType extends BaseType {
     return copiedType;
   }
 
-  updateGenericTypeBindings(genericTypeBindings: Map<String, Type>) {
-    this.genericTypeBindings = genericTypeBindings;
-    this.updateSignature();
-  }
-
   updateSignature(): void {
     if (this.updating) return;
     this.updating = true;
-    if (this.genericTypeBindings.size == 0) {
-      this.signature = this.name + (this.genericTypeNames.length > 0 ? "[" + this.genericTypeNames.join(",") + "]" : "");
-    } else {
-      this.signature =
-        this.name +
-        (this.genericTypeNames.length > 0
-          ? "[" +
-            this.genericTypeNames
-              .map((name) => {
-                const binding = this.genericTypeBindings.get(name);
-                if (!binding) {
-                  throw new LittleFootError(this.location, `Internal error: no binding for generic type parameter ${name}`);
-                }
-                return binding.signature;
-              })
-              .join(",") +
-            "]"
-          : "");
+    let genericSignature: string[] = [];
+    for (const genericType of this.genericTypes) {
+      genericSignature.push(this.isInstantiated ? genericType.type.signature : genericType.name);
     }
+    this.signature = this.name + (this.genericTypes.length > 0 ? "[" + genericSignature.join(",") + "]" : "");
     this.type.updateSignature();
     this.updating = false;
+  }
+
+  setGenericTypes(types: Map<string, Type>) {
+    for (const genericType of this.genericTypes) {
+      if (types.has(genericType.name)) {
+        genericType.type = types.get(genericType.name)!;
+      } else {
+        throw new LittleFootError(this.location, `Internal error: couldn't find generic type binding for '${genericType.name}'.`);
+      }
+    }
+  }
+
+  getGenericType(name: string): Type {
+    for (const genericType of this.genericTypes) {
+      if (genericType.name == name) {
+        return genericType.type;
+      }
+    }
+    throw new LittleFootError(this.location, `Internal error: couldn't find generic type parameter '${name}'.`);
   }
 }
 
@@ -236,11 +234,10 @@ export class NamedFunctionType extends BaseType {
 
   constructor(
     public readonly name: string,
-    public readonly genericTypeNames: string[],
-    public genericTypeBindings: Map<String, Type>,
+    public genericTypes: NameAndType[],
     public isInstantiated: boolean,
     public type: FunctionType,
-    public ast: FunctionNode | FunctionLiteralNode,
+    public ast: FunctionNode,
     public readonly exported: boolean,
     public readonly external: boolean,
     public readonly location: SourceLocation
@@ -249,21 +246,10 @@ export class NamedFunctionType extends BaseType {
     this.updateSignature();
   }
 
-  updateReturnType() {
-    this.type = this.ast.type as FunctionType;
-    this.updateSignature();
-  }
-
-  updateGenericTypeBindings(genericTypeBindings: Map<String, Type>) {
-    this.genericTypeBindings = genericTypeBindings;
-    this.updateSignature();
-  }
-
   copy(namedTypeCopies = new Map<string, NamedType>()): NamedFunctionType {
     return new NamedFunctionType(
       this.name,
-      this.genericTypeNames,
-      this.genericTypeBindings,
+      this.genericTypes.map((type) => new NameAndType(type.name, type.type)),
       this.isInstantiated,
       this.type.copy(namedTypeCopies),
       this.ast,
@@ -277,17 +263,46 @@ export class NamedFunctionType extends BaseType {
     if (this.updating) return;
     this.updating = true;
     this.type.updateSignature();
-    if (this.genericTypeBindings.size == 0) {
-      this.signature = this.name + (this.genericTypeNames.length > 0 ? "[" + this.genericTypeNames.join(",") + "]" : "") + this.type.signature;
-    } else {
-      this.signature =
-        this.name +
-        (this.genericTypeNames.length > 0
-          ? "[" + this.genericTypeNames.map((name) => this.genericTypeBindings.get(name)?.signature).join(",") + "]"
-          : "") +
-        this.type.signature;
+    let genericSignature: string[] = [];
+    for (const genericType of this.genericTypes) {
+      genericSignature.push(this.isInstantiated ? genericType.type.signature : genericType.name);
     }
+    this.signature = this.name + (this.genericTypes.length > 0 ? "[" + genericSignature.join(",") + "]" : "") + this.type.signature;
     this.updating = false;
+  }
+
+  signatureWithParameterNames() {
+    let genericSignature: string[] = [];
+    for (const genericType of this.genericTypes) {
+      genericSignature.push(this.isInstantiated ? genericType.type.signature : genericType.name);
+    }
+    return (
+      this.name +
+      (this.genericTypes.length > 0 ? "[" + genericSignature.join(",") + "]" : "") +
+      "(" +
+      this.type.parameters.map((param) => param.name + ": " + param.type.signature).join(", ") +
+      "): " +
+      this.type.returnType.signature
+    );
+  }
+
+  setGenericTypes(types: Map<string, Type>) {
+    for (const genericType of this.genericTypes) {
+      if (types.has(genericType.name)) {
+        genericType.type = types.get(genericType.name)!;
+      } else {
+        throw new LittleFootError(this.location, `Internal error: couldn't find generic type binding for '${genericType.name}'.`);
+      }
+    }
+  }
+
+  getGenericType(name: string): Type {
+    for (const genericType of this.genericTypes) {
+      if (genericType.name == name) {
+        return genericType.type;
+      }
+    }
+    throw new LittleFootError(this.location, `Internal error: couldn't find generic type parameter '${name}'.`);
   }
 }
 
@@ -363,6 +378,39 @@ export class Functions {
     return false;
   }
 
+  // This needs to catch things like:
+  //
+  // func foo[Z](v: Z): nothing
+  // func foo[Z](v: Z): number
+  //
+  // or
+  //
+  // func foo[Z](v: Z): nothing
+  // func foo[V](v: V): nothing
+  findDuplicate(func: NamedFunctionType) {
+    let funcs = this.lookup.get(func.name);
+    if (!funcs) return null;
+    funcs = funcs.filter(
+      (other) => func.genericTypes.length == other.genericTypes.length && func.type.parameters.length == other.type.parameters.length
+    );
+    if (funcs.length == 0) return null;
+    for (const other of funcs) {
+      let mismatch = false;
+      for (let i = 0; i < other.type.parameters.length; i++) {
+        const otherParam = other.type.parameters[i];
+        const param = func.type.parameters[i];
+        if (!isEqual(otherParam.type, param.type)) {
+          mismatch = true;
+          break;
+        }
+      }
+      if (!mismatch) {
+        return other;
+      }
+    }
+    return null;
+  }
+
   get(name: string) {
     return this.lookup.get(name);
   }
@@ -378,14 +426,17 @@ export class Functions {
   }
 
   add(name: string, func: NamedFunctionType) {
-    if (this.hasExact(name, func.signature)) {
-      const otherFunc = this.getExact(name, func.signature)! as NamedFunctionType;
-      // Adding the exact same function is allowed so
+    const duplicate = this.findDuplicate(func);
+    if (duplicate) {
+      // Adding the exact same function is allowed if the location matches so
       // module import handling is easier.
-      if (func.location.equals(otherFunc.location)) {
+      if (func.location.equals(duplicate.location)) {
         return;
       }
-      throw new LittleFootError(func.location, `Duplicate function '${name}', first defined in ${otherFunc.location.toString()}.`);
+      throw new LittleFootError(
+        func.ast.name.location,
+        `Duplicate function '${func.signatureWithParameterNames()}', first defined in ${duplicate.location.toString()}.`
+      );
     }
 
     let funcs = this.lookup.get(name);
@@ -417,9 +468,6 @@ export class Types {
   }
 
   add(name: string, type: PrimitiveType | NamedType) {
-    if (name == "node") {
-      console.log("wtf");
-    }
     if (this.has(name)) {
       const otherType = this.get(name)!;
       if (otherType.kind == "primitive") {
@@ -542,32 +590,36 @@ export function isEqual(from: Type, to: Type) {
   return false;
 }
 
+export function rawType(type: Type) {
+  let rawType = type;
+  while (rawType.kind == "named function" || rawType.kind == "named type") {
+    rawType = rawType.type;
+  }
+  return rawType;
+}
+
 // If from is a List and map with element/valueType equal to UnknownType,
 // its element/valueType will be set to `to`'s element/valueType
 // and it will be reported to be assignable. This allows empty
 // list and map literals to be assigned to variables, fields,
 // function arguments and so on.
 export function isAssignableTo(from: Type, to: Type): boolean {
-  // If both types are named types, then they are only
+  // If to is the any type, anything is assignable
+  if ((to.kind == "named type" && to.type == AnyType) || to == AnyType) {
+    return true;
+  }
+
+  // If both types are named types with the same name, then they are only
   // equal if they are the same type by identity.
   // This is needed to stop the recursion for types like
   // type node = <children: [node], value: number>
-  if (from.kind == "named type" && to.kind == "named type") {
+  if (from.kind == "named type" && to.kind == "named type" && from.name == to.name) {
     return from.location.equals(to.location);
   }
 
   // Unpack the type of named types
-  if (from.kind == "named function" || from.kind == "named type") {
-    from = from.type;
-  }
-  if (to.kind == "named function" || to.kind == "named type") {
-    to = to.type;
-  }
-
-  // If to is the any type, anything is assignable
-  if (to == AnyType) {
-    return true;
-  }
+  from = rawType(from);
+  to = rawType(to);
 
   // This handles primitives and is also an early out for
   // exact type matches. This also handles exact record matches
@@ -612,7 +664,7 @@ export function isAssignableTo(from: Type, to: Type): boolean {
   // E.g. [number] can not be assigned to [number | string].
   // The from element type must be assignable to the to element type
   if (from.kind == "list" && to.kind == "list") {
-    if (to.elementType.kind == "union" && from.elementType.kind != "union") {
+    if (rawType(to.elementType).kind == "union" && rawType(from.elementType).kind != "union") {
       return false;
     }
     return isAssignableTo(from.elementType, to.elementType);
@@ -623,7 +675,7 @@ export function isAssignableTo(from: Type, to: Type): boolean {
   // E.g. {"a": number} can not be assigned to {"a": number | string}.
   // The from element type must be assignable to the to element type
   if (from.kind == "map" && to.kind == "map") {
-    if (to.valueType.kind == "union" && from.valueType.kind != "union") {
+    if (rawType(to.valueType).kind == "union" && rawType(from.valueType).kind != "union") {
       return false;
     }
     return isAssignableTo(from.valueType, to.valueType);
@@ -649,7 +701,9 @@ export function isAssignableTo(from: Type, to: Type): boolean {
 
         // If the to field is a union and the from field is not, the
         // from is not assignable to. This is required to honor memory layouts.
-        if (toField.type.kind == "union" && fromField.type.kind != "union") continue;
+        if (rawType(toField.type).kind == "union" && rawType(fromField.type).kind != "union") {
+          return false;
+        }
 
         // Otherwise, from needs to be assignable to to.
         if (isAssignableTo(fromField.type, toField.type)) {
@@ -671,6 +725,12 @@ export function isAssignableTo(from: Type, to: Type): boolean {
   if (from.kind == "function" && to.kind == "function") {
     if (from.parameters.length != to.parameters.length) return false;
     for (let i = 0; i < from.parameters.length; i++) {
+      // If the to parameter is a union and the from parameter is not, the
+      // from is not assignable to. This is required to honor memory layouts.
+      if (rawType(to.parameters[i].type).kind == "union" && rawType(from.parameters[i].type).kind != "union") {
+        return false;
+      }
+
       if (!isAssignableTo(from.parameters[i].type, to.parameters[i].type)) return false;
     }
     if (!isAssignableTo(from.returnType, to.returnType)) return false;
@@ -679,4 +739,44 @@ export function isAssignableTo(from: Type, to: Type): boolean {
 
   // Otherwise, the from is not assignable to to
   return false;
+}
+
+export function isGeneric(type: Type) {
+  let found = false;
+  traverseType(type, (type) => {
+    if (type == AnyType) {
+      found = true;
+      return false;
+    }
+    return true;
+  });
+  return found;
+}
+
+export function hasEmptyListOrMap(type: Type) {
+  let found = false;
+  traverseType(type, (type) => {
+    if (type.kind == "list" && type.elementType.signature == UnknownType.signature) {
+      found = true;
+      return false;
+    }
+    if (type.kind == "map" && type.valueType.signature == UnknownType.signature) {
+      found = true;
+      return false;
+    }
+    return true;
+  });
+  return found;
+}
+
+export function hasUnion(type: Type) {
+  let found = false;
+  traverseType(type, (type) => {
+    if (type.kind == "union") {
+      found = true;
+      return false;
+    }
+    return true;
+  });
+  return found;
 }

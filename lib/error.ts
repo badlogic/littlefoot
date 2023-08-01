@@ -1,4 +1,14 @@
-import { Source, SourceLocation } from "./source";
+import { SourceLocation } from "./source";
+
+export const INDENDATION = "   ";
+export function indent(level: number = 1) {
+  if (level < 1) return "";
+  let indentation = "";
+  for (let i = 0; i < level; i++) {
+    indentation += INDENDATION;
+  }
+  return indentation;
+}
 
 export class LittleFootError {
   constructor(public readonly location: SourceLocation, public readonly message: string) {}

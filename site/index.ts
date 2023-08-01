@@ -1,6 +1,7 @@
 import { LittleFootError, MemorySourceLoader, Source } from "../lib";
 import { traverseAst } from "../lib/ast";
-import { Module, compile } from "../lib/compiler";
+import { CompilerContext, Module, compile } from "../lib/compiler";
+import { TypeCheckerContext, checkNodeTypes } from "../lib/typechecker";
 // @ts-ignore
 import example from "../tests/example.lf";
 import { Editor } from "./editor";
@@ -86,19 +87,48 @@ function showModule(modules: Map<string, Module>) {
     if (name == "stdlib.lf") return;
     modulesDiv.appendChild(newTreeNode(1, "Module " + name));
     modulesDiv.appendChild(newTreeNode(2, "AST", () => showOutput(module.ast)));
-    modulesDiv.appendChild(newTreeNode(2, "Types"));
 
+    modulesDiv.appendChild(newTreeNode(2, "Types"));
     module.types.lookup.forEach((type, name) => {
       if (type.kind == "primitive") return;
       if (type.location.source.path != module.source.path) return;
+      if (type.isInstantiated) return;
+      modulesDiv.appendChild(newTreeNode(3, `${name}: ${type.signature}`, () => showOutput(type)));
+    });
+
+    modulesDiv.appendChild(newTreeNode(2, "Instantiated Types"));
+    module.types.lookup.forEach((type, name) => {
+      if (type.kind == "primitive") return;
+      if (type.location.source.path != module.source.path && !type.isInstantiated) return;
+      if (!type.isInstantiated) return;
       modulesDiv.appendChild(newTreeNode(3, `${name}: ${type.signature}`, () => showOutput(type)));
     });
 
     modulesDiv.appendChild(newTreeNode(2, "Functions"));
     module.functions.lookup.forEach((funcs) => {
-      const moduleFuncs = funcs.filter((func) => func.location.source.path == module.source.path);
+      const moduleFuncs = funcs.filter(
+        (func) => func.location.source.path == module.source.path && ((func.genericTypes.length == 0 && func.isInstantiated) || !func.isInstantiated)
+      );
       if (moduleFuncs.length > 0) {
-        moduleFuncs.forEach((func) => modulesDiv.appendChild(newTreeNode(3, func.signature, () => showOutput(func))));
+        moduleFuncs.forEach((func) =>
+          modulesDiv.appendChild(
+            newTreeNode(3, func.signature, () => {
+              // checkNodeTypes(func.ast, new TypeCheckerContext(module, new CompilerContext(new MemorySourceLoader())));
+              showOutput(func);
+            })
+          )
+        );
+      }
+    });
+
+    modulesDiv.appendChild(newTreeNode(2, "Instantiated Functions"));
+    module.functions.lookup.forEach((funcs) => {
+      const moduleFuncs = funcs.filter((func) => func.isInstantiated && func.genericTypes.length > 0);
+      if (moduleFuncs.length > 0) {
+        moduleFuncs.forEach((func) => {
+          // checkNodeTypes(func.ast, new TypeCheckerContext(module, new CompilerContext(new MemorySourceLoader())));
+          modulesDiv.appendChild(newTreeNode(3, func.signature, () => showOutput(func)));
+        });
       }
     });
   });
