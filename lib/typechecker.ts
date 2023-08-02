@@ -115,7 +115,7 @@ export class TypeCheckerContext {
     public readonly scopes = new SymbolScopes(),
     public readonly genericBindings = new GenericBindings(),
     private readonly currentLoop: (ForNode | ForEachNode | WhileNode | DoNode)[] = [],
-    public nameFunctionOrType: FunctionNode | TypeNode | null = null
+    public currentFunctionOrType: FunctionNode | TypeNode | null = null
   ) {}
 
   pushLoop(loop: ForNode | ForEachNode | WhileNode | DoNode) {
@@ -132,12 +132,12 @@ export class TypeCheckerContext {
   }
 
   isInGenericFunctionOrTypeDeclaration(ignoreInstantiated = false) {
-    if (!this.nameFunctionOrType) return false;
-    if (this.nameFunctionOrType.genericTypeNames.length == 0) return false;
-    if (this.nameFunctionOrType.type == UnknownType) return true; // Happens when func is first checked in checkTypes()
+    if (!this.currentFunctionOrType) return false;
+    if (this.currentFunctionOrType.genericTypeNames.length == 0) return false;
+    if (this.currentFunctionOrType.type == UnknownType) return true; // Happens when func is first checked in checkTypes()
     if (
-      (this.nameFunctionOrType.type.kind == "named function" || this.nameFunctionOrType.type.kind == "named type") &&
-      (ignoreInstantiated || !this.nameFunctionOrType.type.isInstantiated)
+      (this.currentFunctionOrType.type.kind == "named function" || this.currentFunctionOrType.type.kind == "named type") &&
+      (ignoreInstantiated || !this.currentFunctionOrType.type.isInstantiated)
     )
       return true;
     return false;
@@ -268,14 +268,14 @@ export function checkTypes(context: TypeCheckerContext) {
   const namedFunctions = ast.filter((node) => node.kind == "function declaration") as FunctionNode[];
   for (const func of namedFunctions) {
     try {
-      context.nameFunctionOrType = func;
+      context.currentFunctionOrType = func;
       const namedFunction = checkFunctionDeclarationNode(func, context, false);
       functions.add(namedFunction.name, namedFunction);
     } catch (e) {
       if (e instanceof LittleFootError) errors.push(e);
       else errors.push(new LittleFootError(func.location, "Internal error: " + (e as any).message + "\n" + (e as any).stack));
     } finally {
-      context.nameFunctionOrType = null;
+      context.currentFunctionOrType = null;
     }
   }
   if (errors.length > 0) return;
@@ -486,7 +486,7 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
       // via the "type reference" case above.
       if (node.type.kind == "named type") {
         try {
-          context.nameFunctionOrType = node;
+          context.currentFunctionOrType = node;
           // Set up generic bindings for each generic type name with type AnyType.
           context.genericBindings.push();
           const genericBindings = context.genericBindings;
@@ -526,7 +526,7 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
           return;
         } finally {
           context.genericBindings.pop();
-          context.nameFunctionOrType = null;
+          context.currentFunctionOrType = null;
         }
       }
       break;
@@ -598,12 +598,12 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
     case "function declaration": {
       try {
         if (!node.returnType && node.genericTypeNames.length > 0) {
-          throw new LittleFootError(node.name.location, "Generic functions must specify a return type.");
+          throw new LittleFootError(node.name.location, "Generic functions must have an explicit return type.");
         }
-        context.nameFunctionOrType = node;
+        context.currentFunctionOrType = node;
         checkFunctionDeclarationNode(node, context, true);
       } finally {
-        context.nameFunctionOrType = null;
+        context.currentFunctionOrType = null;
       }
       break;
     }
@@ -1324,8 +1324,9 @@ function inferClosestFunction(location: SourceLocation, target: AstNode, name: s
     const concretefunctionType = new FunctionType(concreteFunctionParameters, UnknownType);
     genericBindings = inferGenericTypes(closestFunc[0].ast, closestFunc[0], target, concretefunctionType);
     closestFunc[0] = instantiateGenericType(target, closestFunc[0], genericBindings, context) as NamedFunctionType;
+    let lastFunctionOrType = context.currentFunctionOrType;
     try {
-      context.nameFunctionOrType = closestFunc[0].ast;
+      context.currentFunctionOrType = closestFunc[0].ast;
       checkFunctionDeclarationNode(closestFunc[0].ast, context, true);
     } catch (e) {
       const cause: LittleFootError =
@@ -1334,7 +1335,7 @@ function inferClosestFunction(location: SourceLocation, target: AstNode, name: s
           : new LittleFootError(new SourceLocation(location.source, 0, 1), "Internal error: " + (e as any).message + "\n" + (e as any).stack);
       throw new LittleFootError(location, `Can not instantiate generic function ${closestFunc[0].signatureWithParameterNames()}`, "", cause);
     } finally {
-      context.nameFunctionOrType = null;
+      context.currentFunctionOrType = lastFunctionOrType;
     }
   }
   return closestFunc[0];
