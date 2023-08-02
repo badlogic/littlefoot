@@ -88,9 +88,10 @@ export const keywords = [
 ];
 let keywordsLookup = new Set(keywords);
 // prettier-ignore
-export const operatorsList = [ "=", "not", "or", "and", "xor", "==", "!=", ">", ">=", "<", "<=", "+", "-", "*", "/", "%", "(", ")", "[", "]", ".", "?", ":", "|", ",", "{", "}", "is", "as", ";"].sort((a, b) => b.length - a.length);
+const operatorsList = [ "=", "==", "!=", ">", ">=", "<", "<=", "+", "-", "*", "/", "%", "(", ")", "[", "]", ".", "?", ":", "|", ",", "{", "}", ";"].sort((a, b) => b.length - a.length);
 const operatorStarts = new Set(operatorsList.map((operator) => operator.charAt(0)));
 const operators = new Set(operatorsList);
+const alphabeticOperators = new Set(["not", "or", "and", "xor", "is", "as"]);
 
 export function tokenize(source: Source, errors: LittleFootError[]) {
   const text = source.text;
@@ -264,7 +265,7 @@ export function tokenize(source: Source, errors: LittleFootError[]) {
       continue;
     }
 
-    // identifiers and keywords
+    // identifiers and keywords/alphabetic operators
     if (isIdentifierStart(char)) {
       let start = i;
       i++;
@@ -278,7 +279,7 @@ export function tokenize(source: Source, errors: LittleFootError[]) {
         tokens.push(new NothingToken(new SourceLocation(source, start, i), identifier, comments));
       } else if (keywordsLookup.has(identifier)) {
         tokens.push(new KeywordToken(new SourceLocation(source, start, i), identifier, comments));
-      } else if (operators.has(identifier)) {
+      } else if (alphabeticOperators.has(identifier)) {
         tokens.push(new OperatorToken(new SourceLocation(source, start, i), identifier, comments));
       } else {
         tokens.push(new IdentifierToken(new SourceLocation(source, start, i), identifier, comments));
@@ -369,5 +370,19 @@ export class TokenStream {
       throw new LittleFootError(token.location, `Expected '${tokenLabel(type)}' but got '${token.value}'`);
     }
     return this.next<T>();
+  }
+
+  lookAheadValue(offset: number, value: string): boolean {
+    if (offset < 0) return false;
+    if (this.index + offset >= this.tokens.length) return false;
+    const result = this.tokens[this.index + offset].value === value;
+    return result;
+  }
+
+  lookAheadType<T extends Token>(offset: number, type: TokenConstructor<T>): boolean {
+    if (offset < 0) return false;
+    if (this.index + offset >= this.tokens.length) return false;
+    const result = this.tokens[this.index + offset] instanceof type;
+    return result;
   }
 }

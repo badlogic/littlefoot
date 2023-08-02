@@ -14,6 +14,7 @@ export class Editor {
     defineLittleFootLanguage();
     this.editor = monaco.editor.create(container, {
       automaticLayout: true,
+      quickSuggestions: false,
       language: "littlefoot",
       theme: "vs-dark",
       value: "",
@@ -28,7 +29,7 @@ export class Editor {
 
     this.editor.onDidChangeModelContent(() => changeCallback(this.value));
     this.editor.onDidChangeCursorSelection((e) => {
-      const start = this.editor.getModel()!.getOffsetAt(e.selection.getSelectionStart());
+      const start = this.editor.getModel()!.getOffsetAt(e.selection.getStartPosition());
       const end = this.editor.getModel()!.getOffsetAt(e.selection.getEndPosition());
       selectionCallback(start, end);
     });

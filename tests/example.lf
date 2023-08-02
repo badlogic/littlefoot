@@ -11,7 +11,7 @@ yet, because I'm too lazy to figure out the correct regex incantation 🤷"
 
 # Have a look at the right side of the screen. That's where you'll find
 # the abstract syntax tree (AST) the parser generated from the source
-# code, printed as JSON. The "kind" field tells you what type of AST node
+# code. the "kind" field tells you what type of AST node
 # you are looking at. Each node is assigned a type by the type checker,
 # which is also shown in the "type" field of a node.
 
@@ -29,22 +29,23 @@ false;
 
 # There's also nothing, which is used to signal the absence of a value, like
 # when a function doesn't return anything. We'll see nothing again later.
-nothing;
+nothing
 
 # The value literals above are all expressions. As you can see, expressions
 # can be free standing, just like other more common statements like if, while
 # etc.
 
-# You can also have (nested) lists.
-[0, 1, 2, 3];
-["Hello", "world"];
-[true, true, false, true];
-[
+# You can also have (nested) lists. Due to parser ambiguities, it's recommended
+# to prepend free standing top-level list literals with a heart-y ;
+;[0, 1, 2, 3]
+;["Hello", "world"]
+;[true, true, false, true]
+;[
   ["Little", "foot"],
   ["Another", "one", "bites", "the", "dust"]
 ]
 
-# Maps to store key/value pairs are also available.
+# To store key/value pairs, you can use maps.
 # The keys are always strings. They kinda look like JSON.
 # You can add and remove any number of key/value pairs you want.
 { "x": 0, "y": 0 }
@@ -57,7 +58,7 @@ nothing;
 }
 
 # Records are also supported. A record has one or more
-# named fields with a value of a specific type each. They
+# named fields, each with a value of a specific type. They
 # are less free-form than maps, as you can not add
 # or remove fields, like you can add or remove key/value
 # pairs to and from a map.
@@ -67,4 +68,374 @@ nothing;
   color: <r: 255, g: 0, b: 255>
 >
 
+# Functions are also first class citizens in Littlefoot. Here's
+# how you create an anonymous function value. It is directly
+# invoked with arguments (1, 2) after its definition. Yes,
+# you can scoff at the syntax, but I like it. The return
+# type is automatically inferred.
+func (a: number, b: number) return a + b end (1, 2)
 
+# You can also specify it explicitely if you like. This
+# anonymous function is instantiated and then discard,
+# as we aren't invoking it.
+func (a: number): number return a + 10 end
+
+# Sometimes you want to bind a value to a name. That's what
+# variables and constants are for. The type of a variable
+# or constant is inferred from the initializer expression.
+# The initializer is mandatory!
+var pi = 3.14
+const e = 2.71
+
+# You can bind a new value to a variable at any time
+pi = 3
+
+# But you can't bind a new value to a constant
+e = 1
+
+# The Littlefoot compiler strives to recover from errors
+# where possible. It's not great at it yet. But the above
+# error is simply recorded, and the compiler will happily check
+# the remaining code for us.
+
+# Littelfoot comes with a tiny standard library to make working
+# with values easier. You can find it here:
+#
+# https://github.com/badlogic/littlefoot/blob/main/lib/stdlib.ts
+#
+# Yes, the standard library is expressed as Littlefoot code. Pretty
+# much everything is expressed in their, including operators for
+# common types! We'll look into defining operators later.
+#
+# For now, let's print something.
+print("Hello, world!")
+
+# We can also print the length (in UTF-8 characters) of a string.
+print(length("Hello"))
+
+# You can also call functions as if they were methods. Like in
+# an object oriented language. The left hand side of the .
+# expression will be passed as athe first argument to the function.
+# ¯\_(ツ)_/¯
+print("wat".length())
+
+# Above, we've called print() with strings and numbers. That works
+# because there are multiple definitions of print(), one for each
+# primitive type. Littlefoot supports function overloading!
+print(true)
+
+# If you peek at the standard library again, you'll see a bunch
+# of functions for lists and maps. Straight forward stuff:
+var numbers = [0, 1, 2, 3]
+numbers.push(3)
+numbers.pop()
+
+var data = {
+  "name": "John",
+  "age": 34,
+  "location": <long: 33, lat: 42>
+}
+
+# No type coercion in this lil' language. But toString() is
+# defined for all built-in primitive types like boolean.
+print("Has name: " + data.has("name").toString())
+
+# The [] operator on lists is also defined in the standard library.
+var n = numbers[0]
+
+# The standard library is a module. In fact, every Littlefoot file
+# is a module. The top-level variables in a file are module variables
+# and constants and can be exported for use by other modules, like
+# these two.
+export const PI = 3.14
+export var what = "what"
+
+# Top-level variables can also be accessed in functions inside
+# the module. We've seen anonynmous functions above, here's
+# a named function that is exported for use by other modules.
+export func tellMeWhat()
+  return what
+end
+
+# How do you import modules? Well, in the web playground, that's currently
+# not possible. The standard library is imported in each file by default
+# without the need to explicitely doing so.
+#
+# Other modules are imported with relative file paths. E.g. assume
+# there's a file 'math.lf' next to this source file, then you can
+# import all exported things via the following statement (minus the #)
+#
+# import "./math"
+#
+# The ".lf" suffix of the module file is automatically added if it
+# is missing.
+#
+# You can also selectively import things. Assume there're exported
+# functions `cos(rad: number): number` and `sin(rad: number): number`
+# in module "math.lf". You can import them like this:
+#
+# import cos, sin from "./math"
+#
+# You can also rename them.
+#
+# import cos as cosine, sin as sine from "./math"
+#
+# All import statements come first in a source file. Cyclic dependencies
+# between modules are not allowed. And that's how that'd work, if we
+# could import modules on the web.
+
+# Alright, time to go through the boring control flow statements before
+# we move on to the more complex stuff. I don't think they need an
+# explanation.
+if true then
+  print("It's true")
+elseif 10 < 3 then
+  print("10 is less than 3?")
+elseif "test".length() == 4 then
+  print("42")
+else
+  print("What else is there to say")
+end
+
+var i = 0
+while true do
+  print("trolololo")
+  i = i + 1
+  if i > 10 then break end
+end
+
+do
+  if i == 12 then continue end
+  print("trolololo")
+  i = i + 1
+while i < 20
+
+# The step is optional. Fractional steps are also allowed.
+for i from 0 to 10 step 2 do
+  print(i)
+end
+
+# You can for each on lists. Maybe there'll be general
+# iterator support in the future, so you can for each
+# your own types as well. Not today, though.
+for each el in [1, 3, 52, 5] do
+  print(el)
+end
+
+# Alright, enough with the boring stuff.
+#
+# Littlefoot does a bit of type inference. We've seen it above. But
+# sometimes it's impossible to infer the type of something. Here's
+# an example. There's simply no way to infer the element type of
+# the empty list literal, and by proxy, the type of variable nope.
+var nope = []
+
+# In case of empty list and map literals, we need to help the
+# type checker a little and specify the element type manually.
+# Here's the syntax for taht.
+var okList = [:number] # an empty list of numbers
+var okMap = {:string}  # an empty map that has string values.
+
+# Here's one more example.
+var wut = [0, "test", true]
+
+# What in the huh? Double click on wut so see its type in the
+# AST viewer on the right. It's type is [], a list, with element type
+# boolean|number|string (or in full: [boolean|number|string]).
+#
+# Littlefoot supports unions. For the list above, that means each
+# element can potentially hold a boolean, number, or string. When you
+# want to work with an element from the array above, you'll first have
+# to figure out what type the value in the union has.
+#
+# That's done via the is operator and some very simple control flow
+# based typing. The is operator will return true if the value on the
+# right side has the type on the left side.
+#
+# If you use the is operator on the value in a variable within an if
+# conditional, then that variable will have that type inside the
+# true branch. Double click on 'element' in each branch to see its
+# type within that branch.
+var element = wut[0]
+if element is number then
+  print("It's a number: " + toString(element + 19))
+elseif element is string then
+  print("It's a string: " + element)
+elseif element is boolean then
+  print("It's a bool: " + element.toString())
+end
+
+# This is the only way to access and work with values inside a union.
+# At the moment, there's no construct that will ensure you exhaustively
+# match all possible values. I'll likely add a 'match' statement at
+# some point.
+
+# If you want a variable to be a union, you can do so by specifying
+# the type directly.
+var u: string | nothing = "string"
+
+# Alternatively, you can use the as operator. It allows you to broaden
+# the type of an expression. In the below case, the number literal 0
+# will be boxed in a union and bound to variable v, which will have
+# type number | nothing
+var v = 0 as number | nothing
+
+# Speaking of nothing, it's there to signal the absence of a value.
+# You may know this type of value as unit from other languages. It
+# is used when a function doesn't return anything, or if you want
+# to have an optional value like above. It's really mostly useful
+# in unions.
+
+# Alright, we got nothing, boolean, number, string, lists, maps,
+# records, and functions as basic types. So far, we haven't really
+# cared so much about typing, as most things are inferred.
+#
+# But there are times where you need to be explicit with types, e.g.
+# when specifying the parameters of a function. like here:
+func isItNothing(value: boolean | number | string | nothing)
+end
+
+# Or the variable declaration here:
+var vec: <x: number, y: number, z: number> = <x: 0, y: 0, z: 0>
+
+# Having to repeat all that everywhere is cumbersome. You can
+# give types a name like this (and you can also export them):
+export type vector3 = <x: number, y: number, z: number>
+
+# Usage is straight forward
+var vec2: vector3 = <x: 3, y: 2, z: 1>
+
+# If you create a named record type, like vector, then the
+# compiler will also generate a constructor function using
+# the type's name, with one argument per field in the record.
+#
+# The constructor function for type vector3 has signature
+#
+# vector3(x: number, y: number, z: number): vector
+#
+# We can use it like this:
+func add(a: vector3, b: vector3)
+  # instead of return <x: a.x + b.x, y: a.y + b.y, z: a.z + b.z>
+  return vector3(a.x + b.x, a.y + b.y, a.z + b.z)
+end
+
+# On their own, constructor functions for named record types aren't
+# super useful yet, apart from maybe saving a few characters.
+# But they can be the basic type safe building block for creating
+# your own constructor functions for your types. Observe!
+export func vector3(): vector3
+  return vector3(0, 0, 0)
+end
+
+export func vector3(v: number): vector3
+  return vector3(v, v, v)
+end
+
+var zero = vector3()
+var allOnes = vector3(1)
+
+# Function overloading allows us to be fancy here and create
+# as many constructors for a type as we want!
+
+# But that's not all. You saw those operator overloads in the
+# standard library? We can do that ourselves as well of course
+export operator +(a: vector3, b: vector3): vector3
+  return add(a, b)
+end
+
+export operator *(a: vector3, scale: number): vector3
+  return vector3(a.x * scale, a.y * scale, a.z * scale)
+end
+
+var c = vector3(0) + vector3(1, 2, 3) * 3
+
+# Fancy. Littlefoot also does structural typing for records. Observe
+type vector2 = <x: number, y: number>
+
+export operator +(a: vector2, b: vector2): vector2
+  return vector2(a.x + b.x, a.y + b.y)
+end
+
+# We can add vec3s to vec2s no problemo, they are structurally
+# compatible!
+var itsAVec2 = vector2(0, 0) + vector3(1)
+
+# Structural typing is already quite useful. But to be more
+# composable, we can also mix record types. Let's define
+# a few record types first
+type color = <r: number, g: number, b: number>
+type hasPosition = <position: vector2>
+type hasColor = <color: color>
+type hasName = <name: string>
+
+# And now we create a new record type via mixing in the
+# other types. This is done via the + operator.
+# The type sprite has signature <color:color,imagePath:string,name:string,position:vector2>
+type sprite = hasPosition + hasName + <imagePath: string>
+type tintedSprite = sprite + hasColor
+
+# And with structural typing, we can create functions that work
+# on those mixin record types.
+func move(obj: hasPosition, offset: vector2)
+  obj.position = obj.position + offset
+end
+
+func printName(obj: hasName)
+  print(obj.name)
+end
+
+var s = sprite(vector2(0, 0), "Wario", "/home/wario/cool.pcx")
+var ts = tintedSprite(vector2(0, 0), "Luigi", "/home/luigi/wohoo.pcx", color(0xff, 0x00, 0xff))
+
+move(s, vector2(1, 1))
+move(ts, vector2(2, 3))
+printName(ts)
+
+# But wait, there's more! Littlefoot also supports templates, kinda like
+# in C++. It does not support constraining generic types (yet).
+#
+# Let's start by defining a few templated types. Here's an option type.
+type option[T] = T | nothing
+
+# We can use the type like this
+var maybeNumber = 0 as option[number]
+if not maybeNumber is nothing then
+  print(maybeNumber)
+end
+
+var likelyNothing: option[number] = nothing
+if likelyNothing is nothing then
+  print("Got nothing")
+else
+  print("Got a number: " + likelyNothing.toString())
+end
+
+# You can of course also create template record types, even recursive ones
+type node[T] = <children: [node[T]], value: T>
+func leaf[T](value: T): node[T]
+  # The type checker needs a little help here for the empty list literal.
+  return node([:node[T]], value)
+end
+
+# The generic types are inferred based on the constructor arguments.
+# All nodes have type node[number].
+var root = node([
+  node([leaf(43)], 342),
+  leaf(32)
+], 0)
+
+# And we obviously want to traverse our little generic tree.
+func traverse[T, R](node: node[T], result: R, callback: (node: node[T], result: R): boolean): nothing
+  # Return without a value requires ; to tame parser ambiguities. You're welcome
+  if not callback(node, result) then return; end
+  for each child in node.children do
+    traverse(child, result, callback)
+  end
+end
+
+# Let's count the number of nodes.
+var stats = <count: 0>;
+traverse(root, stats, func (node: node[number], result: <count: number>)
+  result.count = result.count + 1
+  return true
+end)

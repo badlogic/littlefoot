@@ -144,8 +144,10 @@ export class TypeCheckerContext {
   }
 }
 
-function newNamedAnyType(name: IdentifierToken): NamedType {
+function newGenericAnyType(name: IdentifierToken): NamedType {
   const typeNode = new TypeNode(name, name, [], new TypeReferenceNode(name, [], null), false);
+  typeNode.type = AnyType;
+  typeNode.typeNode.type = AnyType;
   return new NamedType(name.value, [], true, AnyType, typeNode, false, name.location);
 }
 
@@ -184,6 +186,7 @@ export function checkTypes(context: TypeCheckerContext) {
   context.module.ast.forEach((node) => {
     if (node.kind == "variable declaration") {
       context.module.variables.set(node.name.value, node);
+      node.moduleVariable = true;
     }
   });
 
@@ -195,7 +198,7 @@ export function checkTypes(context: TypeCheckerContext) {
     try {
       typeNode.type = new NamedType(
         typeNode.name.value,
-        typeNode.genericTypeNames.map((name) => new NameAndType(name.value, newNamedAnyType(name))),
+        typeNode.genericTypeNames.map((name) => new NameAndType(name.value, newGenericAnyType(name))),
         typeNode.genericTypeNames.length == 0,
         UnknownType,
         typeNode,
@@ -242,13 +245,13 @@ export function checkTypes(context: TypeCheckerContext) {
       const funcType = new FunctionType(actualType.fields, type);
       const genericBindingNodes = typeNode.genericTypeNames.map((name) => new TypeReferenceNode(name, [], null));
       for (const genericBindingNode of genericBindingNodes) {
-        genericBindingNode.type = newNamedAnyType(genericBindingNode.name);
+        genericBindingNode.type = type.getGenericType(genericBindingNode.name.value);
       }
       const returnTypeNode = new TypeReferenceNode(typeNode.name, genericBindingNodes, null);
       returnTypeNode.type = type;
       type.constructorFunction = new NamedFunctionType(
         type.name,
-        typeNode.genericTypeNames.map((name) => new NameAndType(name.value, newNamedAnyType(name))),
+        typeNode.genericTypeNames.map((name) => new NameAndType(name.value, type.getGenericType(name.value))),
         typeNode.genericTypeNames.length == 0,
         funcType,
         new FunctionNode(typeNode.location, typeNode.name, typeNode.genericTypeNames, [], returnTypeNode, [], typeNode.exported, true, false),
@@ -305,7 +308,7 @@ export function checkTypes(context: TypeCheckerContext) {
     // Ignore type and function declaration nodes
     if (node.kind == "type declaration") continue;
     try {
-      traverseAst(node, (node) => {
+      traverseAst(node, null, (node) => {
         traverseType(node.type, (type) => {
           if (type == UnknownType) {
             throw new LittleFootError(node.location, "Internal error: AST node has unknown type.");
@@ -346,19 +349,19 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
   const scopes = context.scopes;
 
   switch (node.kind) {
-    case "nothing": {
+    case "nothing literal": {
       node.type = NothingType;
       break;
     }
-    case "boolean": {
+    case "boolean literal": {
       node.type = BooleanType;
       break;
     }
-    case "number": {
+    case "number literal": {
       node.type = NumberType;
       break;
     }
-    case "string": {
+    case "string literal": {
       node.type = StringType;
       break;
     }
@@ -446,7 +449,7 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
           // that haven't been resolved yet in other type declarations. Resolve
           // them here.
           if (type.type == UnknownType) {
-            checkNodeTypes(type.typeNode, context);
+            checkNodeTypes(type.ast, context);
           }
 
           // If generic bindings were given, but the type isn't generic, report an error
@@ -496,7 +499,7 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
               throw new LittleFootError(genericTypeName.location, `Duplicate generic type name '${genericTypeName.value}'.`);
             }
             seenGenericTypeNames.add(genericTypeName.value);
-            genericBindings.add(genericTypeName.value, newNamedAnyType(genericTypeName), genericTypeName.location);
+            genericBindings.add(genericTypeName.value, node.type.getGenericType(genericTypeName.value), genericTypeName.location);
           }
 
           // Resolve the types in the type specifier.
@@ -658,7 +661,7 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
       // statement level.
       try {
         let negated = false;
-        traverseAst(node.condition, (node) => {
+        traverseAst(node.condition, node, (node) => {
           if (node.kind == "unary operator" && node.operator.value == "not") negated = !negated;
           if (node.kind == "is operator") {
             isOperators.push({ isNegated: negated, isOperator: node, originalType: node.leftExpression.type, narrowedType: null, negatedType: null });
@@ -1227,7 +1230,8 @@ function reportFunctionNotFound(location: SourceLocation, name: string, args: As
                   func.location.toString() +
                   "), " +
                   func.type.parameters.length +
-                  " arguments"
+                  " argument" +
+                  (func.type.parameters.length > 1 ? "s" : "")
               )
               .join("\n")
           : ""
@@ -1306,6 +1310,12 @@ function inferClosestFunction(location: SourceLocation, target: AstNode, name: s
     );
   }
 
+  // Prevent cycles in generic function instantiations by checking the returned function
+  // is the one we currently check.
+  if (closestFunc[0].ast == context.currentFunctionOrType) {
+    return closestFunc[0];
+  }
+
   // If the closest function is a generic function, we have a few scenarios to handle:
   // 1. The call is part of checking a non-generic function declaration. In this case
   //    we infer its types based on the arguments and instantiate it.
@@ -1357,7 +1367,7 @@ function checkFunctionDeclarationNode(node: FunctionNode, context: TypeCheckerCo
       // function declaration and construct and assign the NamedFunctionType to it.
 
       // Generate dummy generic bindings.
-      node.genericTypeNames.forEach((typeName) => genericBindings.add(typeName.value, newNamedAnyType(typeName), typeName.location));
+      node.genericTypeNames.forEach((typeName) => genericBindings.add(typeName.value, newGenericAnyType(typeName), typeName.location));
 
       // Assign types to the function's parameters and return type
       for (const parameter of node.parameters) {
@@ -1391,7 +1401,7 @@ function checkFunctionDeclarationNode(node: FunctionNode, context: TypeCheckerCo
       );
       const namedFunction = new NamedFunctionType(
         node.name.value,
-        node.genericTypeNames.map((name) => new NameAndType(name.value, newNamedAnyType(name))),
+        node.genericTypeNames.map((name) => new NameAndType(name.value, genericBindings.get(name.value)!)),
         node.genericTypeNames.length == 0,
         functionType,
         node,
@@ -1467,7 +1477,7 @@ function checkOrInferFunctionReturnType(node: FunctionNode | FunctionLiteralNode
     // If a return type was given, check that the returned expressions are assignable to it.
     const returnType = node.returnType.type;
     for (const statement of node.code) {
-      traverseAst(statement, (node) => {
+      traverseAst(statement, node, (node) => {
         if (node.kind == "return") {
           if (!isAssignableTo(node, returnType, context)) {
             throw new LittleFootError(
@@ -1484,7 +1494,7 @@ function checkOrInferFunctionReturnType(node: FunctionNode | FunctionLiteralNode
     // Otherwise gather the types and infere the return type.
     const returns: ReturnNode[] = [];
     for (const statement of node.code) {
-      traverseAst(statement, (node) => {
+      traverseAst(statement, node, (node) => {
         if (node.kind == "return") {
           returns.push(node);
         }
@@ -1715,7 +1725,7 @@ function expandLiteralValueTypesToUnions(from: AstNode, to: Type, context: TypeC
       typeIsAssignableTo(from.type, toType) &&
       toType.kind == "union" &&
       from.type.kind == "primitive" &&
-      (from.kind == "string" || from.kind == "boolean" || from.kind == "number" || from.kind == "nothing")
+      (from.kind == "string literal" || from.kind == "boolean literal" || from.kind == "number literal" || from.kind == "nothing literal")
     ) {
       from.type = to;
       return;
@@ -2126,6 +2136,14 @@ function inferGenericTypes(genericNode: AstNode, genericType: NamedType | NamedF
       case "named type":
         // Extract bindings from concrete generic type if available.
         if (concreteType.kind == "named type") {
+          // The raw types must match at least
+          if (rawType(concreteType).kind != rawType(genericType).kind) {
+            throw new LittleFootError(
+              node.location,
+              `Generic type ${genericType.signature} is not the same kind as concrete type ${concreteType.signature}.`
+            );
+          }
+
           if (genericType.genericTypes.length != concreteType.genericTypes.length) {
             throw new LittleFootError(
               node.location,
@@ -2257,11 +2275,15 @@ function instantiateGenericType(
         }
         break;
       case "named function":
-        type.type = replace(type.type, bindings) as FunctionType;
-        for (const genericType of type.genericTypes) {
-          genericType.type = replace(genericType.type, bindings);
+        // handle recursive named types
+        if (!replacedNamedTypes.has(type)) {
+          replacedNamedTypes.add(type);
+          type.type = replace(type.type, bindings) as FunctionType;
+          for (const genericType of type.genericTypes) {
+            genericType.type = replace(genericType.type, bindings);
+          }
+          type.isInstantiated = true;
         }
-        type.isInstantiated = true;
         break;
       default:
         assertNever(type);

@@ -5,7 +5,17 @@ import { Source, SourceLoader, SourceLocation } from "./source";
 import { standardLibSource } from "./stdlib";
 import { IdentifierToken } from "./tokenizer";
 import { TypeCheckerContext, checkTypes } from "./typechecker";
-import { FunctionType, Functions, NamedFunctionType, NothingType, Types } from "./types";
+import {
+  FunctionType,
+  Functions,
+  NamedFunctionType,
+  NothingType,
+  ResolvingTypeMarker,
+  Types,
+  seenTypes,
+  setGenerateTypeIds,
+  setNextTypeId,
+} from "./types";
 
 export class Module {
   constructor(
@@ -47,6 +57,8 @@ class StandardLibSourceLoader implements SourceLoader {
 }
 
 export function compile(path: string, sourceLoader: SourceLoader) {
+  seenTypes.length = ResolvingTypeMarker.id + 1;
+  setNextTypeId(ResolvingTypeMarker.id + 1);
   const loaderWrapper = new StandardLibSourceLoader(sourceLoader);
   const context = new CompilerContext(loaderWrapper);
   compileModule("stdlib", context);

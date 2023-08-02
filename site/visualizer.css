@@ -1,0 +1,63 @@
+.visualizer {
+  margin: 0;
+  padding: 1em;
+  font-family: Menlo;
+  font-size: 1em;
+  line-height: 1.2;
+  cursor: default;
+  overflow: auto;
+  color: #e8eaed;
+}
+
+.object-visualizer > * {
+  width: 100%;
+  display: inline-block;
+}
+
+.visualizer-node {
+  cursor: pointer;
+}
+
+.visualizer-leaf {
+  cursor: auto;
+}
+
+.visualizer-node-indicator {
+  padding-right: 0.3em;
+  font-size: 1.2em;
+  color: #9aa0a6;
+  user-select: none;
+}
+
+.visualizer-node-key {
+  color: #5db0d7;
+  user-select: none;
+}
+
+.visualizer-node-colon {
+  user-select: none;
+}
+
+.visualizer-node-value {
+  padding-left: 0.5em;
+}
+
+.visualizer-node-undefined {
+  color: #80868a;
+}
+
+.visualizer-node-null {
+  color: #80868a;
+}
+
+.visualizer-node-boolean {
+  color: #9980ff;
+}
+
+.visualizer-node-number {
+  color: #9980ff;
+}
+
+.visualizer-node-string {
+  color: #36d4c7;
+}

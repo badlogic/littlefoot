@@ -1,15 +1,24 @@
-import { LittleFootError, MemorySourceLoader, Source } from "../lib";
-import { traverseAst } from "../lib/ast";
-import { CompilerContext, Module, compile } from "../lib/compiler";
-import { TypeCheckerContext, checkNodeTypes } from "../lib/typechecker";
+import { LittleFootError, MemorySourceLoader, SourceLocation, Token } from "../lib";
+import { Module, compile } from "../lib/compiler";
+import { BaseType, NamedType, seenTypes, setGenerateTypeIds } from "../lib/types";
+// @ts-ignore
+import { ObjectVisualizer } from "object-visualizer";
+import "object-visualizer/dist/index.min.css";
+import { createApp } from "vue";
 // @ts-ignore
 import example from "../tests/example.lf";
 import { Editor } from "./editor";
+import { AstNode, BaseAstNode, traverseAst } from "../lib/ast";
+import { Visualizer } from "./visualizer";
 
+setGenerateTypeIds(true);
 const editorContainer = document.querySelector("#editor") as HTMLTextAreaElement;
 const errorDiv = document.querySelector("#errors") as HTMLDivElement;
 const outputDiv = document.querySelector("#output") as HTMLDivElement;
 const modulesDiv = document.querySelector("#modules") as HTMLDivElement;
+let outputApp: any = null;
+let errors: LittleFootError[] = [];
+let modules = new Map<string, Module>();
 
 const editor = new Editor(
   editorContainer,
@@ -17,7 +26,9 @@ const editor = new Editor(
     localStorage.setItem("source", editor.value);
     compileText(editor.value);
   },
-  (start, end) => {}
+  (start, end) => {
+    highlightSelection(start, end);
+  }
 );
 
 const stored = localStorage.getItem("source");
@@ -29,19 +40,21 @@ else {
 function compileText(value: string) {
   localStorage.setItem("source", value);
   let start = performance.now();
-  const { errors, modules } = compile("source.lf", new MemorySourceLoader({ path: "source.lf", text: value }));
+  const context = compile("source.lf", new MemorySourceLoader({ path: "source.lf", text: value }));
+  modules = context.modules;
+  errors = context.errors;
   console.log(`Compilation took: ${(performance.now() - start).toFixed(2)} ms`);
 
-  showModule(modules);
+  showModules(modules);
   showErrors(errors);
-  showOutput(modules.get("source.lf")?.ast);
+  showOutput("Module source.lf", modules.get("source.lf")?.ast);
 }
 
 function showErrors(errors: LittleFootError[]) {
   if (errors.length > 0) {
     editor.highlightErrors(errors);
     const html = errors
-      .map((error) => error.toStringWithCauses())
+      .map((error) => error.toStringWithCauses() + "\n")
       .reduce((prev, curr) => prev + curr)
       .replace(/</g, "&lt;")
       .replace(/\n/g, "<br>");
@@ -52,20 +65,40 @@ function showErrors(errors: LittleFootError[]) {
   }
 }
 
-function showOutput(thing: any) {
-  outputDiv.innerHTML = "";
-  outputDiv.innerHTML += JSON.stringify(
-    thing,
-    (key, value) => {
-      if (key == "source" || key == "location" || key == "typeNode") return undefined;
-      if (key == "type" && value.signature) return value.signature;
-      if (key == "name" && value.value) return value.value;
-      return value;
-    },
-    2
-  )
-    .replace(/</g, "&lt;")
-    .replace(/\n/g, "<br>");
+let timeoutId: any = 0;
+function showOutput(rootName: string, thing: any) {
+  clearTimeout(timeoutId);
+  timeoutId = setTimeout(() => {
+    new Visualizer(
+      outputDiv,
+      thing,
+      rootName,
+      (path, key, value) => {
+        if (path.length > 1) return false;
+        return true;
+      },
+      (object) => {
+        const keys = Object.keys(object).filter((key) => {
+          if (key == "kind" || key == "type" || key == "name") return false;
+          return true;
+        });
+        if (object["type"]) keys.unshift("type");
+        if (object["name"]) keys.unshift("name");
+        if (object["kind"]) keys.unshift("kind");
+        return keys;
+      },
+      (obj, key, value) => {
+        return value;
+      },
+      (value) => {
+        if (value instanceof SourceLocation) return value.toString();
+        if (value instanceof BaseType) return value.signature;
+        if (value instanceof Token) return JSON.stringify(value.value);
+        if (value instanceof BaseAstNode) return (value as any)["kind"] + ", type: " + value.type.signature;
+        return undefined;
+      }
+    );
+  }, 200);
 }
 
 function newTreeNode(level: number, text: string, callback: (() => void) | null = null) {
@@ -73,27 +106,33 @@ function newTreeNode(level: number, text: string, callback: (() => void) | null 
   div.innerText = text;
   if (callback) {
     div.addEventListener("click", callback);
-    div.style.color = "#007bff";
   }
+  div.classList.add("treeNode");
   div.classList.add("treeNode" + level);
-  div.style.cursor = "pointer";
   div.style.paddingLeft = level + "em";
   return div;
 }
 
-function showModule(modules: Map<string, Module>) {
+function newSpacer() {
+  const div = document.createElement("div");
+  div.style.height = "1em";
+  div.style.width = "100%";
+  return div;
+}
+
+function showModules(modules: Map<string, Module>) {
   modulesDiv.innerHTML = "";
   modules.forEach((module, name) => {
     if (name == "stdlib.lf") return;
     modulesDiv.appendChild(newTreeNode(1, "Module " + name));
-    modulesDiv.appendChild(newTreeNode(2, "AST", () => showOutput(module.ast)));
+    modulesDiv.appendChild(newTreeNode(2, "AST", () => showOutput("Module " + name + " AST", module.ast)));
 
     modulesDiv.appendChild(newTreeNode(2, "Types"));
     module.types.lookup.forEach((type, name) => {
       if (type.kind == "primitive") return;
       if (type.location.source.path != module.source.path) return;
       if (type.isInstantiated) return;
-      modulesDiv.appendChild(newTreeNode(3, `${name}: ${type.signature}`, () => showOutput(type)));
+      modulesDiv.appendChild(newTreeNode(3, `${name}: ${type.signature}`, () => showOutput("Type " + type.signature, type)));
     });
 
     modulesDiv.appendChild(newTreeNode(2, "Instantiated Types"));
@@ -101,7 +140,7 @@ function showModule(modules: Map<string, Module>) {
       if (type.kind == "primitive") return;
       if (type.location.source.path != module.source.path && !type.isInstantiated) return;
       if (!type.isInstantiated) return;
-      modulesDiv.appendChild(newTreeNode(3, `${name}: ${type.signature}`, () => showOutput(type)));
+      modulesDiv.appendChild(newTreeNode(3, `${name}: ${type.signature}`, () => showOutput("Type " + type.signature, type)));
     });
 
     modulesDiv.appendChild(newTreeNode(2, "Functions"));
@@ -114,7 +153,7 @@ function showModule(modules: Map<string, Module>) {
           modulesDiv.appendChild(
             newTreeNode(3, func.signature, () => {
               // checkNodeTypes(func.ast, new TypeCheckerContext(module, new CompilerContext(new MemorySourceLoader())));
-              showOutput(func);
+              showOutput("Function " + func.signature, func);
             })
           )
         );
@@ -127,9 +166,58 @@ function showModule(modules: Map<string, Module>) {
       if (moduleFuncs.length > 0) {
         moduleFuncs.forEach((func) => {
           // checkNodeTypes(func.ast, new TypeCheckerContext(module, new CompilerContext(new MemorySourceLoader())));
-          modulesDiv.appendChild(newTreeNode(3, func.signature, () => showOutput(func)));
+          modulesDiv.appendChild(newTreeNode(3, func.signature, () => showOutput("Function " + func.signature, func)));
         });
       }
     });
   });
+  modulesDiv.appendChild(newSpacer());
+  modulesDiv.appendChild(newTreeNode(1, "All types"));
+  seenTypes.forEach((type) => {
+    modulesDiv.appendChild(newTreeNode(3, `${type.id}: ${type.signature}`, () => showOutput("Type " + type.signature, type)));
+  });
+}
+
+function highlightSelection(start: number, end: number) {
+  const module = modules.get("source.lf");
+  if (!module) return;
+
+  if (start == end) {
+    showOutput("Module source.lf", module.ast);
+    return;
+  }
+  const inRange = (location: SourceLocation, start: number, end: number) => {
+    return start >= location.start && end <= location.end;
+  };
+  let bestNode: AstNode | null = null;
+  let bestMatchLength = Infinity;
+
+  const callback = (node: AstNode, parentNode: AstNode | null): boolean => {
+    if (!inRange(node.location, start, end)) return false;
+    const nodeLength = node.location.end - node.location.start;
+    const matchLength = Math.min(Math.abs(start - node.location.start), Math.abs(end - node.location.end));
+
+    if (!bestNode) {
+      bestNode = node;
+      bestMatchLength = matchLength;
+    } else {
+      if (
+        matchLength < bestMatchLength ||
+        (matchLength === bestMatchLength && nodeLength < (bestNode?.location.end - bestNode?.location.start || Infinity))
+      ) {
+        bestNode = node;
+        bestMatchLength = matchLength;
+      }
+    }
+    return true;
+  };
+
+  for (const statement of module.ast) {
+    traverseAst(statement, null, callback);
+  }
+  if (bestNode) {
+    showOutput("AST node", bestNode);
+  } else {
+    showOutput("Module source.lf", module.ast);
+  }
 }

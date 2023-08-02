@@ -2,9 +2,26 @@ import { FunctionNode, TypeNode } from "./ast";
 import { LittleFootError } from "./error";
 import { SourceLocation } from "./source";
 
+let generateTypeIds = false;
+let nextTypeId = 0;
+
+export function setGenerateTypeIds(generate: boolean) {
+  generateTypeIds = generate;
+}
+
+export function setNextTypeId(id: number) {
+  nextTypeId = id;
+}
+
+export const seenTypes: Type[] = [];
 export abstract class BaseType {
   public abstract kind: string;
   public signature: string = "";
+  public id = generateTypeIds ? nextTypeId++ : 0;
+
+  constructor() {
+    seenTypes.push(this as any as Type);
+  }
 
   abstract copy(namedTypeCopies: Map<string, NamedType>): Type;
 
@@ -15,12 +32,14 @@ export class NameAndType {
   constructor(public readonly name: string, public type: Type) {}
 }
 
+let primitiveTypeId = 0;
 export class PrimitiveType extends BaseType {
   public readonly kind: "primitive" = "primitive";
 
   constructor(public readonly name: string) {
     super();
     this.updateSignature();
+    this.id = primitiveTypeId++;
   }
 
   copy(namedTypeCopies = new Map<string, NamedType>()): PrimitiveType {
@@ -158,14 +177,14 @@ export class UnionType extends BaseType {
 export class NamedType extends BaseType {
   public readonly kind: "named type" = "named type";
   private updating = false;
-
   public constructorFunction: NamedFunctionType | null = null;
+
   constructor(
     public readonly name: string,
     public genericTypes: NameAndType[],
     public isInstantiated: boolean,
     public type: Type,
-    public typeNode: TypeNode,
+    public ast: TypeNode,
     public readonly exported: boolean,
     public readonly location: SourceLocation
   ) {
@@ -186,7 +205,7 @@ export class NamedType extends BaseType {
       this.genericTypes.map((type) => new NameAndType(type.name, type.type)),
       this.isInstantiated,
       UnknownType,
-      this.typeNode,
+      this.ast,
       this.exported,
       this.location
     );
@@ -315,6 +334,7 @@ export const StringType = new PrimitiveType("string");
 export const UnknownType = new PrimitiveType("$unknown");
 export const AnyType = new PrimitiveType("$any"); // Used for generics so we can do some type checking.
 export const ResolvingTypeMarker = new PrimitiveType("$resolving");
+nextTypeId = ResolvingTypeMarker.id + 1;
 
 function assertNever(x: never) {
   throw new Error("Unexpected object: " + x);

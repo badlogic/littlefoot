@@ -26,7 +26,11 @@ export function parse(source: Source, errors: LittleFootError[]) {
       const attributes = parseAttributes(stream);
 
       if (stream.matchValue("func") || stream.matchValue("operator")) {
-        ast.push(parseFunction(stream, true, attributes));
+        if (!stream.lookAheadValue(1, "(")) {
+          ast.push(parseFunction(stream, true, attributes));
+        } else {
+          ast.push(parseStatement(stream));
+        }
         continue;
       }
 
@@ -256,10 +260,26 @@ function parseNameAndType(stream: TokenStream) {
   return new NameAndTypeNode(name, type);
 }
 
-function parseFunction(stream: TokenStream, hasName: boolean, attributes: Attribute[] = []) {
+function parseFunction(stream: TokenStream, canHaveName: boolean, attributes: Attribute[] = []) {
   const firstToken = stream.matchValue("func") ? stream.expectValue("func") : stream.expectValue("operator");
   const isOperator = firstToken.value == "operator";
-  let name = hasName ? (isOperator ? stream.expectType(OperatorToken) : stream.expectType(IdentifierToken)) : null;
+  if (isOperator && !canHaveName) {
+    throw new LittleFootError(firstToken.location, "Operators can only be defined at the module level.");
+  }
+  let name: OperatorToken | IdentifierToken | null = null;
+  let hasName = false;
+
+  if (canHaveName) {
+    if ((!stream.matchValue("(") && stream.matchType(OperatorToken)) || stream.matchType(IdentifierToken)) {
+      hasName = true;
+      name = isOperator ? stream.expectType(OperatorToken) : stream.expectType(IdentifierToken);
+    }
+  } else {
+    if ((!stream.matchValue("(") && stream.matchType(OperatorToken)) || stream.matchType(IdentifierToken)) {
+      throw new LittleFootError(firstToken.location, "Named functions can only be defined at the module level.");
+    }
+  }
+
   if (isOperator && name?.value == "[") {
     stream.expectValue("]");
     name = new OperatorToken(name.location, "[]", name.comments);
@@ -621,10 +641,12 @@ function parseMemberAccessOrCall(expression: ExpressionNode, stream: TokenStream
         result = new FunctionCallNode(result, args, closingParanthesis);
       } else if (result instanceof MemberAccessNode) {
         result = new MethodCallNode(result, args, closingParanthesis);
+      } else if (result instanceof FunctionLiteralNode) {
+        result = new FunctionCallNode(result, args, closingParanthesis);
       } else {
         throw new LittleFootError(
           SourceLocation.from(openingParanthesis.location, closingParanthesis.location),
-          `Expected a variable, field, or method.`
+          `Expected a variable, field, method, or function literal.`
         );
       }
     } else if (stream.matchValue("[")) {
@@ -636,6 +658,7 @@ function parseMemberAccessOrCall(expression: ExpressionNode, stream: TokenStream
       const identifier = stream.expectType(IdentifierToken);
       result = new MemberAccessNode(result, identifier);
     } else if (stream.matchValue(";", true)) {
+      while (stream.matchValue(";", true)); // Consume follow up ;
       break;
     }
   }

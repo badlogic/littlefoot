@@ -299,28 +299,28 @@ export class AsOperatorNode extends BaseAstNode {
 }
 
 export class StringLiteralNode extends BaseAstNode {
-  public readonly kind: "string" = "string";
+  public readonly kind: "string literal" = "string literal";
   constructor(public readonly token: StringToken) {
     super(token.location);
   }
 }
 
 export class NumberLiteralNode extends BaseAstNode {
-  public readonly kind: "number" = "number";
+  public readonly kind: "number literal" = "number literal";
   constructor(public readonly token: NumberToken) {
     super(token.location);
   }
 }
 
 export class BooleanLiteralNode extends BaseAstNode {
-  public readonly kind: "boolean" = "boolean";
+  public readonly kind: "boolean literal" = "boolean literal";
   constructor(public readonly token: BoolToken) {
     super(token.location);
   }
 }
 
 export class NothingLiteralNode extends BaseAstNode {
-  public readonly kind: "nothing" = "nothing";
+  public readonly kind: "nothing literal" = "nothing literal";
   constructor(public readonly token: NothingToken) {
     super(token.location);
   }
@@ -389,7 +389,11 @@ export class MapOrListAccessNode extends BaseAstNode {
 
 export class FunctionCallNode extends BaseAstNode {
   public readonly kind: "function call" = "function call";
-  constructor(public readonly target: VariableAccessNode | MapOrListAccessNode, public readonly args: ExpressionNode[], lastToken: Token) {
+  constructor(
+    public readonly target: VariableAccessNode | MapOrListAccessNode | FunctionLiteralNode,
+    public readonly args: ExpressionNode[],
+    lastToken: Token
+  ) {
     super(SourceLocation.from(target.location, lastToken.location));
   }
 }
@@ -405,181 +409,181 @@ function assertNever(x: never) {
   throw new Error("Unexpected object: " + x);
 }
 
-export function traverseAst(node: AstNode, callback: (node: AstNode) => boolean) {
-  if (!callback(node)) return;
+export function traverseAst(node: AstNode, parent: AstNode | null, callback: (node: AstNode, parent: AstNode | null) => boolean) {
+  if (!callback(node, parent)) return;
   switch (node.kind) {
-    case "nothing":
+    case "nothing literal":
       break;
-    case "string":
+    case "string literal":
       break;
-    case "number":
+    case "number literal":
       break;
-    case "boolean":
+    case "boolean literal":
       break;
     case "name and type":
-      traverseAst(node.typeNode, callback);
+      traverseAst(node.typeNode, node, callback);
       break;
     case "type reference":
       break;
     case "list type":
-      traverseAst(node.elementType, callback);
+      traverseAst(node.elementType, node, callback);
       break;
     case "map type":
-      traverseAst(node.valueType, callback);
+      traverseAst(node.valueType, node, callback);
       break;
     case "function type":
       for (const param of node.parameters) {
-        traverseAst(param, callback);
+        traverseAst(param, node, callback);
       }
-      if (node.returnType) traverseAst(node.returnType, callback);
+      if (node.returnType) traverseAst(node.returnType, node, callback);
       break;
     case "record type":
       for (const field of node.fields) {
-        traverseAst(field, callback);
+        traverseAst(field, node, callback);
       }
       break;
     case "union type":
       for (const type of node.unionTypes) {
-        traverseAst(type, callback);
+        traverseAst(type, node, callback);
       }
       break;
     case "mixin type":
       for (const type of node.mixinTypes) {
-        traverseAst(type, callback);
+        traverseAst(type, node, callback);
       }
       break;
     case "import":
       for (const importedName of node.importedNames) {
-        traverseAst(importedName, callback);
+        traverseAst(importedName, node, callback);
       }
       break;
     case "imported name":
       break;
     case "function declaration":
       for (const param of node.parameters) {
-        traverseAst(param, callback);
+        traverseAst(param, node, callback);
       }
-      if (node.returnType) traverseAst(node.returnType, callback);
+      if (node.returnType) traverseAst(node.returnType, node, callback);
       for (const statement of node.code) {
-        traverseAst(statement, callback);
+        traverseAst(statement, node, callback);
       }
       break;
     case "type declaration":
-      traverseAst(node.typeNode, callback);
+      traverseAst(node.typeNode, node, callback);
       break;
     case "variable declaration":
-      if (node.typeNode) traverseAst(node.typeNode, callback);
-      traverseAst(node.initializer, callback);
+      if (node.typeNode) traverseAst(node.typeNode, node, callback);
+      traverseAst(node.initializer, node, callback);
       break;
     case "if":
-      traverseAst(node.condition, callback);
+      traverseAst(node.condition, node, callback);
       for (const statement of node.trueBlock) {
-        traverseAst(statement, callback);
+        traverseAst(statement, node, callback);
       }
       for (const elseIf of node.elseIfs) {
-        traverseAst(elseIf, callback);
+        traverseAst(elseIf, node, callback);
       }
       for (const statement of node.falseBlock) {
-        traverseAst(statement, callback);
+        traverseAst(statement, node, callback);
       }
       break;
     case "while":
-      traverseAst(node.condition, callback);
+      traverseAst(node.condition, node, callback);
       for (const statement of node.block) {
-        traverseAst(statement, callback);
+        traverseAst(statement, node, callback);
       }
       break;
     case "loop variable":
       break;
     case "for each":
-      traverseAst(node.list, callback);
+      traverseAst(node.list, node, callback);
       for (const statement of node.block) {
-        traverseAst(statement, callback);
+        traverseAst(statement, node, callback);
       }
       break;
     case "for":
-      traverseAst(node.from, callback);
-      traverseAst(node.to, callback);
-      if (node.step) traverseAst(node.step, callback);
+      traverseAst(node.from, node, callback);
+      traverseAst(node.to, node, callback);
+      if (node.step) traverseAst(node.step, node, callback);
       for (const statement of node.block) {
-        traverseAst(statement, callback);
+        traverseAst(statement, node, callback);
       }
       break;
     case "do":
       for (const statement of node.block) {
-        traverseAst(statement, callback);
+        traverseAst(statement, node, callback);
       }
-      traverseAst(node.condition, callback);
+      traverseAst(node.condition, node, callback);
       break;
     case "continue":
       break;
     case "break":
       break;
     case "return":
-      if (node.expression) traverseAst(node.expression, callback);
+      if (node.expression) traverseAst(node.expression, node, callback);
       break;
     case "ternary operator":
-      traverseAst(node.condition, callback);
-      traverseAst(node.trueExpression, callback);
-      traverseAst(node.falseExpression, callback);
+      traverseAst(node.condition, node, callback);
+      traverseAst(node.trueExpression, node, callback);
+      traverseAst(node.falseExpression, node, callback);
       break;
     case "binary operator":
-      traverseAst(node.leftExpression, callback);
-      traverseAst(node.rightExpression, callback);
+      traverseAst(node.leftExpression, node, callback);
+      traverseAst(node.rightExpression, node, callback);
       break;
     case "unary operator":
-      traverseAst(node.expression, callback);
+      traverseAst(node.expression, node, callback);
       break;
     case "is operator":
     case "as operator":
-      traverseAst(node.leftExpression, callback);
-      traverseAst(node.typeNode, callback);
+      traverseAst(node.leftExpression, node, callback);
+      traverseAst(node.typeNode, node, callback);
       break;
     case "list literal":
       for (const element of node.elements) {
-        traverseAst(element, callback);
+        traverseAst(element, node, callback);
       }
-      if (node.typeNode) traverseAst(node.typeNode, callback);
+      if (node.typeNode) traverseAst(node.typeNode, node, callback);
       break;
     case "map literal":
       for (let i = 0; i < node.values.length; i++) {
-        traverseAst(node.values[i], callback);
+        traverseAst(node.values[i], node, callback);
       }
-      if (node.typeNode) traverseAst(node.typeNode, callback);
+      if (node.typeNode) traverseAst(node.typeNode, node, callback);
       break;
     case "record literal":
       for (let i = 0; i < node.fieldValues.length; i++) {
-        traverseAst(node.fieldValues[i], callback);
+        traverseAst(node.fieldValues[i], node, callback);
       }
       break;
     case "function literal":
       for (const param of node.parameters) {
-        traverseAst(param, callback);
+        traverseAst(param, node, callback);
       }
-      if (node.returnType) traverseAst(node.returnType, callback);
+      if (node.returnType) traverseAst(node.returnType, node, callback);
       for (const statement of node.code) {
-        traverseAst(statement, callback);
+        traverseAst(statement, node, callback);
       }
       break;
     case "variable access":
       break;
     case "member access":
-      traverseAst(node.object, callback);
+      traverseAst(node.object, node, callback);
       break;
     case "map or list access":
-      traverseAst(node.target, callback);
-      traverseAst(node.keyOrIndex, callback);
+      traverseAst(node.target, node, callback);
+      traverseAst(node.keyOrIndex, node, callback);
       break;
     case "function call":
-      traverseAst(node.target, callback);
+      traverseAst(node.target, node, callback);
       for (const arg of node.args) {
-        traverseAst(arg, callback);
+        traverseAst(arg, node, callback);
       }
       break;
     case "method call":
-      traverseAst(node.target, callback);
+      traverseAst(node.target, node, callback);
       for (const arg of node.args) {
-        traverseAst(arg, callback);
+        traverseAst(arg, node, callback);
       }
       break;
     default:
