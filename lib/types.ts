@@ -520,7 +520,12 @@ export function isEqual(from: Type, to: Type) {
     if (from.type == AnyType && to.type == AnyType) {
       return true;
     } else {
-      return from.location.equals(to.location);
+      // If one is generic and the other isn't, the aren't equal
+      if (from.location.equals(to.location)) {
+        return (isGeneric(from) ? 1 : 0) + (isGeneric(to) ? 1 : 0) != 1;
+      } else {
+        return false;
+      }
     }
   }
 

@@ -435,6 +435,28 @@ describe("Typechecker tests", () => {
     expect(errors[0].message).toEqual("Functions that are called recursively, either directly or indirectly, must have a return type.");
   });
 
+  it("Should handle recursive generic type defintions", () => {
+    const { modules, errors } = testCompile(`
+    type branch[T] = <left: node[T], right: node[T]>
+    type leaf[T] = T
+    type node[T] = branch[T] | leaf[T]
+    var left = branch(0, 0)
+    var root = branch(left, left)
+
+    func traverse[T](node: node[T], level: number): nothing
+      for i from 0 to level do print("  ") end
+      if node is leaf[T] then
+        print(node)
+      else
+        traverse(node.left, level + 1)
+        traverse(node.right, level + 1)
+      end
+    end
+    traverse(root, 0)
+    `);
+    expect(errors.length).toBe(0);
+  });
+
   it("Should handle recursive type definitions", () => {
     const { modules, errors } = testCompile(`
     type branch = <left: node, right: node>

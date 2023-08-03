@@ -702,11 +702,12 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
           }
           const variable = scopes.get((operator.isOperator.leftExpression as VariableAccessNode).name.value)!;
           const variableType = rawType((operator.originalType = variable.type));
+          // If the variable is generic, we assume it can be a union
           if (!(variableType.kind == "union" || isGeneric(variableType))) {
             throw new LittleFootError(operator.isOperator.leftExpression.location, "Variable type must be a union.");
           }
           operator.narrowedType = operator.isOperator.typeNode.type;
-          if (!isAssignableTo(operator.isOperator.typeNode, variable.type, context)) {
+          if (!typeIsAssignableTo(operator.isOperator.typeNode.type, variable.type)) {
             throw new LittleFootError(
               variable.location,
               `Variable '${variable.name.value}' has type '${variable.type.signature}' and can never be type '${operator.narrowedType.signature}'.`
@@ -714,7 +715,10 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
           }
 
           if (variableType.kind == "union") {
-            const newTypes = variableType.types.filter((type) => !typeIsAssignableTo(type, operator.narrowedType!));
+            // If the variable is generic, we just use it for the negated type set as well, as it's an any type.
+            const newTypes = isGeneric(variableType)
+              ? [operator.originalType]
+              : variableType.types.filter((type) => !typeIsAssignableTo(type, operator.narrowedType!));
             if (newTypes.length == 0 && (operator.isNegated || node.falseBlock.length > 0)) {
               throw new LittleFootError(
                 operator.isOperator.location,
@@ -1108,7 +1112,13 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
           throw new LittleFootError(node.member.location, `Field '${node.member.value}' does not exist on type '${node.object.type.signature}'.`);
         }
       } else {
-        throw new LittleFootError(node.member.location, `Field '${node.member.value}' does not exist on type '${node.object.type.signature}'.`);
+        if (!context.isInGenericFunctionOrTypeDeclaration()) {
+          throw new LittleFootError(node.member.location, `Field '${node.member.value}' does not exist on type '${node.object.type.signature}'.`);
+        } else {
+          // If we are type checking a generic function, set the type to any type so we can continue
+          // type checking.
+          node.type = AnyType;
+        }
       }
       break;
     case "map or list access":
@@ -1159,9 +1169,9 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
           checkNodeTypes(node.target, context);
           node.type = functionType.returnType;
         } else {
-          // Otherwise, lookup the best fitting function for the given args, including the "object"
-          // as the first argument. inferClosestFunction will also call checkFunctionNode in case the
-          // function has no return type assigned yet.
+          // Otherwise, lookup the best fitting function for the given args,
+          // inferClosestFunction will also call checkFunctionNode in case the
+          // function hasn't been checked yet.
           const closestFunc = inferClosestFunction(node.location, node.target, node.target.name.value, node.args, context);
           node.target.type = closestFunc;
           node.type = closestFunc.type.returnType;
@@ -1327,7 +1337,9 @@ function inferClosestFunction(location: SourceLocation, target: AstNode, name: s
   }
 
   // If there's more than one best fit, error. User has to narrow argument list.
-  if (closestFunc.length > 1) {
+  // Don't error in case we are type checking a generic function. The arguments
+  // could result in a single best fit when instantiated.
+  if (closestFunc.length > 1 && !context.isInGenericFunctionOrTypeDeclaration()) {
     throw new LittleFootError(
       location,
       `More than one function called '${name}' matches the arguments.`,
@@ -2005,8 +2017,9 @@ function getClosestFunction(context: TypeCheckerContext, name: string, args: Ast
   }
 
   // If we found a single candidate, type empty lists and expand literal value types to union types
-  // in the arguments.
-  if (candidates.length == 1) {
+  // in the arguments. Don't do this for non-instantiated generic functions or else generic type
+  // inference will fail.
+  if (candidates.length == 1 && (candidates[0].genericTypes.length == 0 || !isGeneric(candidates[0]))) {
     const func = candidates[0];
     for (let i = 0; i < args.length; i++) {
       const param = func.type.parameters[i].type;

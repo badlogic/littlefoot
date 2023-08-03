@@ -391,6 +391,61 @@ move(s, vector2(1, 1))
 move(ts, vector2(2, 3))
 printName(ts)
 
+# How about some ADT like fun via unions so we can pretend we have
+# error handling?
+type person = <name :string, age :number>
+type error = <reason :string, code :number>
+func load_person (id :number) :person | error
+  if id == 0 then
+    return error("Id can not be 0", 123)
+  else
+    return person("Wario", 27)
+  end
+end
+
+const result = load_person(0)
+if result is error then
+  print("Oh no: " + result.reason)
+else
+  print(result.name + " is " + result.age.toString() + " years old")
+end
+
+# Or how about shapes. Everybody loves shapes.
+type circle = <radius :number>
+type rectangle = <width :number, height :number>
+type shape = circle | rectangle
+
+func area (s: shape) :number
+  if s is circle then
+    return s.radius * 2 * PI
+  else
+    return s.width * s.height
+  end
+end
+
+# Say I can't modify the area() function, as its a 3rd party thing.
+# I can still extend it via a bit of ADT-like magic.
+type square = <side :number>
+type extendedShape = shape | square
+func area(s: extendedShape): number
+  if s is shape then
+    return area(s)
+  else
+    return s.side * s.side
+  end
+end
+
+# Here, the type checker can't decide which of the two functions
+# to use.
+area(circle(10))
+
+# But we can help it via the as operator. This will pick
+# our extended function.
+area(circle(10) as extendedShape)
+
+# This picks the original implementation
+area(circle(2) as shape)
+
 # But wait, there's more! Littlefoot also supports templates, kinda like
 # in C++. It does not support constraining generic types (yet).
 #
@@ -439,3 +494,21 @@ traverse(root, stats, func (node: node[number], result: <count: number>)
   result.count = result.count + 1
   return true
 end)
+
+# We can also do mutually recursive generic types
+type branch[T] = <left: treeNode[T], right: treeNode[T]>
+type leaf[T] = T
+type treeNode[T] = branch[T] | leaf[T]
+var left = branch(0, 0)
+var tree = branch(left, left)
+
+func traverse[T](node: treeNode[T], level: number): nothing
+  for i from 0 to level do print("  ") end
+  if node is leaf[T] then
+    print(node)
+  else
+    traverse(node.left, level + 1)
+    traverse(node.right, level + 1)
+  end
+end
+traverse(tree, 0)
