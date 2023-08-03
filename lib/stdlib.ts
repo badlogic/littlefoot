@@ -40,4 +40,4 @@ export external func print(message: string): nothing;
 export external func print(num: boolean): nothing;
 export external func print(num: number): nothing;
 `;
-// standardLibSource = "";
+//standardLibSource = "";

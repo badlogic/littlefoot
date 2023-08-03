@@ -435,6 +435,26 @@ describe("Typechecker tests", () => {
     expect(errors[0].message).toEqual("Functions that are called recursively, either directly or indirectly, must have a return type.");
   });
 
+  it("Should handle recursive type definitions", () => {
+    const { modules, errors } = testCompile(`
+    type branch = <left: node, right: node>
+    type leaf = number
+    type node = branch | leaf
+    var root = branch(0, branch(0, branch(0, 1)))
+
+    func traverse(node: node, level: number): nothing
+      for i from 0 to level do print("  ") end
+      if node is leaf then
+        print(node)
+      else
+        traverse(node.left, level + 1)
+        traverse(node.right, level + 1)
+      end
+    end
+    `);
+    expect(errors.length).toBe(0);
+  });
+
   it("Should handle recursive functions", () => {
     const { modules, errors } = testCompile(`
       func fibonacci(n: number): number
@@ -551,6 +571,8 @@ describe("Typechecker tests", () => {
     const { errors } = testCompile(`
       type a = number | b
       type b = a | number
+
+      var c: a = 0 as b
     `);
 
     expect(errors.length).toBe(1);

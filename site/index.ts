@@ -2,10 +2,6 @@ import { LittleFootError, MemorySourceLoader, SourceLocation, Token } from "../l
 import { Module, compile } from "../lib/compiler";
 import { BaseType, NamedType, seenTypes, setGenerateTypeIds } from "../lib/types";
 // @ts-ignore
-import { ObjectVisualizer } from "object-visualizer";
-import "object-visualizer/dist/index.min.css";
-import { createApp } from "vue";
-// @ts-ignore
 import example from "../tests/example.lf";
 import { Editor } from "./editor";
 import { AstNode, BaseAstNode, traverseAst } from "../lib/ast";
