@@ -3,6 +3,30 @@ import { ListType, MapType, NameAndType, NamedType, NothingType, NumberType, Rec
 import { testCompile } from "./utils";
 
 describe("Typechecker tests", () => {
+  it("Should not allow access to enclosing scopes for function litearls, except the module scope", () => {
+    const { errors } = testCompile(`
+    var x = 0
+
+    if true then
+      var z = 0
+    end
+
+    func foo()
+      print(x)
+      var y = 0
+      var f = func()
+        var yy = 0
+        func ()
+          print(yy)
+        end
+        print(yy)
+        print(z)
+      end
+    end
+    `);
+    expect(errors.length).toBe(2);
+  });
+
   it("Should handle is operator correctly.", () => {
     const { errors, modules } = testCompile(`
     type t = number | string | nothing
@@ -135,6 +159,13 @@ describe("Typechecker tests", () => {
     end
 
     barz([:number])
+
+    func findIndex[T](list: [T], predicate: (element: T, index: number): boolean): number
+      for i from 0 to list.length() - 1 do
+        if predicate(list[i], i) then return i end
+      end
+      return -1
+    end
     `);
     expect(errors.length).toBe(0);
   });
@@ -578,7 +609,7 @@ describe("Typechecker tests", () => {
       type b = a + <y: number> + number
     `);
     expect(errors.length).toBe(1);
-    expect(errors[0].message).toEqual("All types in a mixin must be a record, but found 'number'.");
+    expect(errors[0].message).toEqual("All types in a mixin must be a record, but found 'float64'.");
   });
 
   it("Should not error on self referential types", () => {

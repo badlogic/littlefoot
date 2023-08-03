@@ -1,3 +1,4 @@
+import { LittleFootError } from "./error";
 import { SourceLocation } from "./source";
 import { BoolToken, IdentifierToken, NothingToken, NumberToken, OperatorToken, StringToken, Token } from "./tokenizer";
 import { Type, UnknownType } from "./types";
@@ -40,7 +41,8 @@ export type ExpressionNode =
   | MemberAccessNode
   | MapOrListAccessNode
   | FunctionCallNode
-  | MethodCallNode;
+  | MethodCallNode
+  | IncompleteExpressionNode;
 
 export abstract class BaseAstNode {
   public type: Type = UnknownType;
@@ -405,6 +407,13 @@ export class MethodCallNode extends BaseAstNode {
   }
 }
 
+export class IncompleteExpressionNode extends BaseAstNode {
+  public readonly kind: "incomplete expression" = "incomplete expression";
+  constructor(public readonly expression: ExpressionNode, public readonly error: LittleFootError) {
+    super(expression.location);
+  }
+}
+
 function assertNever(x: never) {
   throw new Error("Unexpected object: " + x);
 }
@@ -585,6 +594,9 @@ export function traverseAst(node: AstNode, parent: AstNode | null, callback: (no
       for (const arg of node.args) {
         traverseAst(arg, node, callback);
       }
+      break;
+    case "incomplete expression":
+      traverseAst(node.expression, node, callback);
       break;
     default:
       assertNever(node);

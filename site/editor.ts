@@ -84,6 +84,10 @@ export class Editor {
     });
     monaco.editor.setModelMarkers(this.editor.getModel()!, "littlefoot", markers);
   }
+
+  setCompletionProvider(provider: monaco.languages.CompletionItemProvider) {
+    monaco.languages.registerCompletionItemProvider("littlefoot", provider);
+  }
 }
 
 let languageDefined = false;

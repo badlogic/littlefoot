@@ -16,7 +16,7 @@ export type Symbol = VariableNode | NameAndTypeNode | LoopVariable;
 export const overloadableBinaryOperators = ["or", "and", "xor", "<", "<=", ">", ">=", "+", "-", "/", "*", "%", "[]"];
 
 export class SymbolScopes {
-  scopes = new Array<Map<string, Symbol>>();
+  public scopes = new Array<Map<string, Symbol>>();
 
   constructor() {
     this.push();
@@ -75,11 +75,8 @@ export class GenericBindings {
   }
 
   pop() {
+    if (this.scopes.length == 0) throw new Error("Tried to pop generic bindings without there being any.");
     this.scopes.pop();
-  }
-
-  current() {
-    return this.scopes[this.scopes.length - 1];
   }
 
   get(name: string): Type | undefined {
@@ -109,14 +106,63 @@ export class GenericBindings {
 }
 
 export class TypeCheckerContext {
+  private savedScopes = new SymbolScopes();
+  private savedGenericBindings = new GenericBindings();
+  private savedCurrentLoop: (ForNode | ForEachNode | WhileNode | DoNode)[] = [];
+  private savedCurrrentFunctionOrType: (FunctionNode | TypeNode)[] = [];
+
+  private fullScopes = new Array<Map<string, Symbol>>();
+
   constructor(
     public readonly module: Module,
     public readonly compilerContext: CompilerContext,
-    public readonly scopes = new SymbolScopes(),
-    public readonly genericBindings = new GenericBindings(),
+    private readonly scopes = new SymbolScopes(),
+    private readonly genericBindings = new GenericBindings(),
     private readonly currentLoop: (ForNode | ForEachNode | WhileNode | DoNode)[] = [],
-    public currentFunctionOrType: FunctionNode | TypeNode | null = null
+    private currentFunctionOrType: (FunctionNode | TypeNode | null)[] = []
   ) {}
+
+  pushScope() {
+    this.scopes.push();
+  }
+
+  popScope() {
+    this.scopes.pop();
+  }
+
+  pushModuleScope() {
+    this.fullScopes = this.scopes.scopes;
+    this.scopes.scopes = [this.fullScopes[0]];
+    this.pushScope();
+  }
+
+  popModuleScope() {
+    this.scopes.scopes = this.fullScopes;
+  }
+
+  addToScope(name: string, node: Symbol, allowShadow = true) {
+    this.scopes.add(name, node, allowShadow);
+  }
+
+  getFromScope(name: string) {
+    return this.scopes.get(name);
+  }
+
+  pushGenericBindings() {
+    return this.genericBindings.push();
+  }
+
+  popGenericBindings() {
+    this.genericBindings.pop();
+  }
+
+  addGenericBinding(name: string, binding: Type, location: SourceLocation, allowShadow = true) {
+    this.genericBindings.add(name, binding, location, allowShadow);
+  }
+
+  getGenericBinding(name: string) {
+    return this.genericBindings.get(name);
+  }
 
   pushLoop(loop: ForNode | ForEachNode | WhileNode | DoNode) {
     this.currentLoop.push(loop);
@@ -128,17 +174,32 @@ export class TypeCheckerContext {
 
   getCurentLoop(): ForNode | ForEachNode | WhileNode | DoNode | undefined {
     if (this.currentLoop.length == 0) return undefined;
-    else return this.currentLoop[this.currentLoop.length - 1];
+    return this.currentLoop[this.currentLoop.length - 1];
+  }
+
+  pushCurrentFunctionOrType(node: FunctionNode | TypeNode) {
+    this.currentFunctionOrType.push(node);
+  }
+
+  popCurrentFunctionOrType() {
+    if (this.currentFunctionOrType.length == 0) {
+      throw Error("Tried to pop current function or type without there being one.");
+    }
+    this.currentFunctionOrType.pop();
+  }
+
+  getCurrentFunctionOrType() {
+    if (this.currentFunctionOrType.length == 0) return undefined;
+    return this.currentFunctionOrType[this.currentFunctionOrType.length - 1];
   }
 
   isInGenericFunctionOrTypeDeclaration(ignoreInstantiated = false) {
-    if (!this.currentFunctionOrType) return false;
-    if (this.currentFunctionOrType.genericTypeNames.length == 0) return false;
-    if (this.currentFunctionOrType.type == UnknownType) return true; // Happens when func is first checked in checkTypes()
-    if (
-      (this.currentFunctionOrType.type.kind == "named function" || this.currentFunctionOrType.type.kind == "named type") &&
-      (ignoreInstantiated || !this.currentFunctionOrType.type.isInstantiated)
-    )
+    if (this.currentFunctionOrType.length == 0) return false;
+    const current = this.currentFunctionOrType[this.currentFunctionOrType.length - 1];
+    if (!current) return false;
+    if (current.genericTypeNames.length == 0) return false;
+    if (current.type == UnknownType) return true; // Happens when func is first checked in checkTypes()
+    if ((current.type.kind == "named function" || current.type.kind == "named type") && (ignoreInstantiated || !current.type.isInstantiated))
       return true;
     return false;
   }
@@ -166,7 +227,7 @@ export function checkTypes(context: TypeCheckerContext) {
   context.module.functions.add("$main", mainType);
 
   // Handle all the imports, also import stdlib
-  importModule(context.compilerContext.modules.get("stdlib.lf")!, context.module, context.scopes);
+  importModule(context.compilerContext.modules.get("stdlib.lf")!, context.module, context);
   const imports: ImportNode[] = ast.filter((node) => node.kind == "import") as ImportNode[];
   for (const imp of imports) {
     try {
@@ -251,13 +312,13 @@ export function checkTypes(context: TypeCheckerContext) {
 
       // Instantiate the type
       try {
-        context.currentFunctionOrType = typeNode;
+        context.pushCurrentFunctionOrType(typeNode);
         namedTypes[i] = typeNode.type = type = instantiateGenericType(typeNode, type, bindings, context) as NamedType;
       } catch (e) {
         if (e instanceof LittleFootError) errors.push(e);
         else errors.push(new LittleFootError(typeNode.location, "Internal error: " + (e as any).message + "\n" + (e as any).stack));
       } finally {
-        context.currentFunctionOrType = null;
+        context.popCurrentFunctionOrType();
       }
     }
 
@@ -292,16 +353,15 @@ export function checkTypes(context: TypeCheckerContext) {
   // through a second call to `checkFunctionNode()`.
   const namedFunctions = ast.filter((node) => node.kind == "function declaration") as FunctionNode[];
   for (const func of namedFunctions) {
-    const oldCurrentFunctionOrType = context.currentFunctionOrType;
     try {
-      context.currentFunctionOrType = func;
+      context.pushCurrentFunctionOrType(func);
       const namedFunction = checkFunctionDeclarationNode(func, context, false);
       functions.add(namedFunction.name, namedFunction);
     } catch (e) {
       if (e instanceof LittleFootError) errors.push(e);
       else errors.push(new LittleFootError(func.location, "Internal error: " + (e as any).message + "\n" + (e as any).stack));
     } finally {
-      context.currentFunctionOrType = oldCurrentFunctionOrType;
+      context.popCurrentFunctionOrType();
     }
   }
   if (errors.length > 0) return;
@@ -368,8 +428,6 @@ export function checkTypes(context: TypeCheckerContext) {
 
 export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
   const types = context.module.types;
-  const functions = context.module.functions;
-  const scopes = context.scopes;
 
   switch (node.kind) {
     case "nothing literal": {
@@ -453,12 +511,11 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
       break;
     }
     case "type reference": {
-      const genericBindings = context.genericBindings;
-      if (!types.has(node.name.value) && !genericBindings.get(node.name.value)) {
+      if (!types.has(node.name.value) && !context.getGenericBinding(node.name.value)) {
         throw new LittleFootError(node.location, `Can not find type '${node.name.value}'.`);
       }
       // Look for the type in the generic bindings first.
-      let type = genericBindings.get(node.name.value) ? genericBindings.get(node.name.value)! : types.get(node.name.value)!;
+      let type = context.getGenericBinding(node.name.value) ? context.getGenericBinding(node.name.value)! : types.get(node.name.value)!;
 
       // If the reference is a primitive type, return early
       if (type.kind == "primitive") {
@@ -511,19 +568,17 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
       // Recursively resolve the type. Also resolves other named types
       // via the "type reference" case above.
       if (node.type.kind == "named type") {
-        const oldCurrentFunctionOrType = context.currentFunctionOrType;
         try {
-          context.currentFunctionOrType = node;
+          context.pushCurrentFunctionOrType(node);
           // Set up generic bindings for each generic type name with type AnyType.
-          context.genericBindings.push();
-          const genericBindings = context.genericBindings;
+          context.pushGenericBindings();
           const seenGenericTypeNames = new Set<string>();
           for (const genericTypeName of node.genericTypeNames) {
             if (seenGenericTypeNames.has(genericTypeName.value)) {
               throw new LittleFootError(genericTypeName.location, `Duplicate generic type name '${genericTypeName.value}'.`);
             }
             seenGenericTypeNames.add(genericTypeName.value);
-            genericBindings.add(genericTypeName.value, node.type.getGenericType(genericTypeName.value), genericTypeName.location);
+            context.addGenericBinding(genericTypeName.value, node.type.getGenericType(genericTypeName.value), genericTypeName.location);
           }
 
           // Resolve the types in the type specifier.
@@ -552,8 +607,8 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
           }
           return;
         } finally {
-          context.genericBindings.pop();
-          context.currentFunctionOrType = oldCurrentFunctionOrType;
+          context.popGenericBindings();
+          context.popCurrentFunctionOrType();
         }
       }
       break;
@@ -575,7 +630,7 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
       }
 
       if (node.importedNames.length == 0) {
-        importModule(module, context.module, scopes);
+        importModule(module, context.module, context);
       } else {
         // Otherwise, import only named things and optionally alias them within
         // this module.
@@ -612,7 +667,7 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
           if (module.variables.has(importedName.name.value)) {
             const variable = module.variables.get(importedName.name.value)!;
             context.module.variables.set(alias, variable);
-            scopes.add(alias, variable);
+            context.addToScope(alias, variable);
           }
         }
       }
@@ -623,15 +678,14 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
       break; // no-op, handled in "import" case above
     }
     case "function declaration": {
-      const oldCurrentFunctionOrType = context.currentFunctionOrType;
+      context.pushCurrentFunctionOrType(node);
       try {
         if (!node.returnType && node.genericTypeNames.length > 0) {
           throw new LittleFootError(node.name.location, "Generic functions must have an explicit return type.");
         }
-        context.currentFunctionOrType = node;
         checkFunctionDeclarationNode(node, context, true);
       } finally {
-        context.currentFunctionOrType = oldCurrentFunctionOrType;
+        context.popCurrentFunctionOrType();
       }
       break;
     }
@@ -664,7 +718,7 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
         }
         node.type = node.initializer.type;
       }
-      scopes.add(node.name.value, node);
+      context.addToScope(node.name.value, node);
       break;
     }
     case "if": {
@@ -684,23 +738,22 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
 
       // Try/finally, as we need to reset the variable types so we can do proper recovery on the
       // statement level.
+      let negated = false;
+      traverseAst(node.condition, node, (node) => {
+        if (node.kind == "unary operator" && node.operator.value == "not") negated = !negated;
+        if (node.kind == "is operator") {
+          isOperators.push({ isNegated: negated, isOperator: node, originalType: node.leftExpression.type, narrowedType: null, negatedType: null });
+        }
+        return true;
+      });
       try {
-        let negated = false;
-        traverseAst(node.condition, node, (node) => {
-          if (node.kind == "unary operator" && node.operator.value == "not") negated = !negated;
-          if (node.kind == "is operator") {
-            isOperators.push({ isNegated: negated, isOperator: node, originalType: node.leftExpression.type, narrowedType: null, negatedType: null });
-          }
-          return true;
-        });
-
         // Temporarily set the types of each variable found in the "is" operators
         // to the type specified in the operator.
         for (const operator of isOperators) {
           if (operator.isOperator.leftExpression.kind != "variable access") {
             throw new LittleFootError(operator.isOperator.leftExpression.location, "Must be a variable.");
           }
-          const variable = scopes.get((operator.isOperator.leftExpression as VariableAccessNode).name.value)!;
+          const variable = context.getFromScope((operator.isOperator.leftExpression as VariableAccessNode).name.value)!;
           const variableType = rawType((operator.originalType = variable.type));
           // If the variable is generic, we assume it can be a union
           if (!(variableType.kind == "union" || isGeneric(variableType))) {
@@ -731,33 +784,33 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
           variable.type = operator.isNegated && operator.negatedType ? operator.negatedType : operator.narrowedType;
         }
 
-        scopes.push();
+        context.pushScope();
         checkBlock(node.trueBlock, context);
-        scopes.pop();
+        context.popScope();
 
         // Reset the variable types narrowed down in "is" operators
         for (const operator of isOperators) {
-          const variable = scopes.get((operator.isOperator.leftExpression as VariableAccessNode).name.value)!;
+          const variable = context.getFromScope((operator.isOperator.leftExpression as VariableAccessNode).name.value)!;
           variable.type = operator.originalType;
         }
 
-        scopes.push();
+        context.pushScope();
         checkBlock(node.elseIfs, context);
-        scopes.pop();
+        context.popScope();
 
         // Set the negated types for the else block
         for (const operator of isOperators) {
-          const variable = scopes.get((operator.isOperator.leftExpression as VariableAccessNode).name.value)!;
+          const variable = context.getFromScope((operator.isOperator.leftExpression as VariableAccessNode).name.value)!;
           variable.type = operator.isNegated && operator.negatedType ? operator.narrowedType! : operator.negatedType!;
         }
 
-        scopes.push();
+        context.pushScope();
         checkBlock(node.falseBlock, context);
-        scopes.pop();
+        context.popScope();
       } finally {
         // Reset the variable types
         for (const operator of isOperators) {
-          const variable = scopes.get((operator.isOperator.leftExpression as VariableAccessNode).name.value)!;
+          const variable = context.getFromScope((operator.isOperator.leftExpression as VariableAccessNode).name.value)!;
           variable.type = operator.originalType;
         }
       }
@@ -772,9 +825,9 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
       }
 
       context.pushLoop(node);
-      scopes.push();
+      context.pushScope();
       checkBlock(node.block, context);
-      scopes.pop();
+      context.popScope();
       context.popLoop();
 
       node.type = NothingType;
@@ -790,10 +843,11 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
       node.loopVariable.type = node.list.type.elementType;
 
       context.pushLoop(node);
-      scopes.push();
-      scopes.add(node.loopVariable.name.value, node.loopVariable);
+      context.pushScope();
+      context.addToScope(node.loopVariable.name.value, node.loopVariable);
       checkBlock(node.block, context);
-      scopes.pop();
+      context.popScope();
+      context.popLoop();
 
       node.type = NothingType;
       break;
@@ -813,10 +867,10 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
       }
 
       context.pushLoop(node);
-      scopes.push();
-      scopes.add(node.loopVariable.name.value, node.loopVariable);
+      context.pushScope();
+      context.addToScope(node.loopVariable.name.value, node.loopVariable);
       checkBlock(node.block, context);
-      scopes.pop();
+      context.popScope();
       context.popLoop();
 
       node.type = NothingType;
@@ -828,9 +882,9 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
       }
 
       context.pushLoop(node);
-      scopes.push();
+      context.pushScope();
       checkBlock(node.block, context);
-      scopes.pop();
+      context.popScope();
       context.popLoop();
 
       node.type = NothingType;
@@ -878,7 +932,9 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
       switch (node.operator.value) {
         case "=":
           if (node.leftExpression.kind == "variable access") {
-            const symbol = scopes.get(node.leftExpression.name.value);
+            const symbol = context.getFromScope(node.leftExpression.name.value);
+            // This should never happen, as the variable is looked up during checkNodeTypes(node.leftExpression)
+            // above via the "variable access" ast node. Stil...
             if (!symbol) {
               throw new LittleFootError(node.leftExpression.name.location, `Can not find variable '${node.leftExpression.name.value}'.`);
             }
@@ -1090,9 +1146,24 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
       node.type = checkFunctionLiteralNode(node, context);
       break;
     case "variable access":
-      const symbol = scopes.get(node.name.value);
+      const symbol = context.getFromScope(node.name.value);
       if (!symbol) {
-        throw new LittleFootError(node.name.location, `Can not find variable '${node.name.value}'.`);
+        // User might try to access the variable before its defined. This can happen like this
+        //
+        // foo()
+        // var a = 0
+        // func foo() print(a) end
+        //
+        // We check if there are module level variables with that name and if so, tell the user
+        // that they mustn't call foo() before a was declared, either directly, or indirectly through
+        // another call.
+        //
+        const variable = context.module.variables.get(node.name.value);
+        if (!variable) {
+          throw new LittleFootError(node.name.location, `Can not find variable '${node.name.value}'.`);
+        }
+
+        throw new LittleFootError(node.name.location, `Access to module-level variable '${node.name.value}' before it is initialized.`);
       }
       node.type = symbol.type;
       break;
@@ -1150,7 +1221,7 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
       if (node.target.kind == "variable access") {
         // if the target is a variable name, first check if
         // there's one in the scope. If so, check its type
-        const symbol = scopes.get(node.target.name.value);
+        const symbol = context.getFromScope(node.target.name.value);
         if (symbol) {
           if (rawType(symbol.type).kind != "function") {
             throw new LittleFootError(node.target.name.location, `'${node.target.name.value}' is not a function.`);
@@ -1232,10 +1303,16 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
       node.target.type = closestFunc;
       node.type = closestFunc.type.returnType;
       break;
+    case "incomplete expression":
+      checkNodeTypes(node.expression, context);
+      node.type = node.expression.type;
+      throw node.error;
     default:
       assertNever(node);
   }
 }
+
+function reportWithCallChain(location: SourceLocation, error: LittleFootError, context: TypeCheckerContext) {}
 
 function reportFunctionNotFound(location: SourceLocation, name: string, args: AstNode[], context: TypeCheckerContext) {
   const functions = context.module.functions;
@@ -1349,7 +1426,7 @@ function inferClosestFunction(location: SourceLocation, target: AstNode, name: s
 
   // Prevent cycles in generic function instantiations by checking the returned function
   // is the one we currently check.
-  if (closestFunc[0].ast == context.currentFunctionOrType) {
+  if (closestFunc[0].ast == context.getCurrentFunctionOrType()) {
     return closestFunc[0];
   }
 
@@ -1370,12 +1447,12 @@ function inferClosestFunction(location: SourceLocation, target: AstNode, name: s
     }
     const concretefunctionType = new FunctionType(concreteFunctionParameters, UnknownType);
     genericBindings = inferGenericTypes(closestFunc[0].ast, closestFunc[0], target, concretefunctionType);
-    let lastFunctionOrType = context.currentFunctionOrType;
 
     try {
-      context.currentFunctionOrType = closestFunc[0].ast;
+      context.pushCurrentFunctionOrType(closestFunc[0].ast);
       closestFunc[0] = instantiateGenericType(target, closestFunc[0], genericBindings, context) as NamedFunctionType;
-      context.currentFunctionOrType = closestFunc[0].ast;
+      context.popCurrentFunctionOrType();
+      context.pushCurrentFunctionOrType(closestFunc[0].ast);
       checkFunctionDeclarationNode(closestFunc[0].ast, context, true);
     } catch (e) {
       const cause: LittleFootError =
@@ -1384,7 +1461,7 @@ function inferClosestFunction(location: SourceLocation, target: AstNode, name: s
           : new LittleFootError(new SourceLocation(location.source, 0, 1), "Internal error: " + (e as any).message + "\n" + (e as any).stack);
       throw new LittleFootError(location, `Can not instantiate generic function ${closestFunc[0].signatureWithParameterNames()}`, "", cause);
     } finally {
-      context.currentFunctionOrType = lastFunctionOrType;
+      context.popCurrentFunctionOrType();
     }
   }
   return closestFunc[0];
@@ -1397,21 +1474,20 @@ function checkFunctionDeclarationNode(node: FunctionNode, context: TypeCheckerCo
   }
 
   node.isBeingChecked = true;
-  context.scopes.push();
-  const genericBindings = context.genericBindings;
-  genericBindings.push();
+  context.pushScope();
+  context.pushGenericBindings();
   try {
     if (!checkCode) {
       // If we aren't checking the code, then this means we are validating the signature of the
       // function declaration and construct and assign the NamedFunctionType to it.
 
       // Generate dummy generic bindings.
-      node.genericTypeNames.forEach((typeName) => genericBindings.add(typeName.value, newGenericAnyType(typeName), typeName.location));
+      node.genericTypeNames.forEach((typeName) => context.addGenericBinding(typeName.value, newGenericAnyType(typeName), typeName.location));
 
       // Assign types to the function's parameters and return type
       for (const parameter of node.parameters) {
         checkNodeTypes(parameter, context);
-        context.scopes.add(parameter.name.value, parameter);
+        context.addToScope(parameter.name.value, parameter);
       }
       if (node.returnType) checkNodeTypes(node.returnType, context);
 
@@ -1440,7 +1516,7 @@ function checkFunctionDeclarationNode(node: FunctionNode, context: TypeCheckerCo
       );
       const namedFunction = new NamedFunctionType(
         node.name.value,
-        node.genericTypeNames.map((name) => new NameAndType(name.value, genericBindings.get(name.value)!)),
+        node.genericTypeNames.map((name) => new NameAndType(name.value, context.getGenericBinding(name.value)!)),
         node.genericTypeNames.length == 0,
         functionType,
         node,
@@ -1456,17 +1532,24 @@ function checkFunctionDeclarationNode(node: FunctionNode, context: TypeCheckerCo
         throw new LittleFootError(node.name.location, "Internal error: expected function to be typed.");
       }
       node.type.genericTypes.forEach((genericType, index) =>
-        genericBindings.add(genericType.name, genericType.type, node.genericTypeNames[index].location)
+        context.addGenericBinding(genericType.name, genericType.type, node.genericTypeNames[index].location)
       );
 
       // Check parameters and return type, which may also have concrete generic bindings now.
       for (const parameter of node.parameters) {
         checkNodeTypes(parameter, context);
-        context.scopes.add(parameter.name.value, parameter);
+        context.addToScope(parameter.name.value, parameter);
       }
       if (node.returnType) checkNodeTypes(node.returnType, context);
 
-      checkBlock(node.code, context);
+      try {
+        checkBlock(node.code, context);
+      } catch (e) {
+        if (e instanceof LittleFootError && e.message.startsWith("Access to module-level variable")) {
+        } else {
+          throw e;
+        }
+      }
 
       const returnType = checkOrInferFunctionReturnType(node, context);
       if (!node.returnType) {
@@ -1477,20 +1560,19 @@ function checkFunctionDeclarationNode(node: FunctionNode, context: TypeCheckerCo
 
     return node.type;
   } finally {
-    context.genericBindings.pop();
-    context.scopes.pop();
+    context.popGenericBindings();
+    context.popScope();
     node.isBeingChecked = false;
   }
 }
 
 function checkFunctionLiteralNode(node: FunctionLiteralNode, context: TypeCheckerContext) {
+  context.pushModuleScope();
   try {
-    context.scopes.push();
-
     // Check parameters and return type.
     for (const parameter of node.parameters) {
       checkNodeTypes(parameter, context);
-      context.scopes.add(parameter.name.value, parameter);
+      context.addToScope(parameter.name.value, parameter);
     }
     if (node.returnType) checkNodeTypes(node.returnType, context);
 
@@ -1507,7 +1589,7 @@ function checkFunctionLiteralNode(node: FunctionLiteralNode, context: TypeChecke
 
     return node.type;
   } finally {
-    context.scopes.pop();
+    context.popModuleScope();
   }
 }
 
@@ -1568,7 +1650,7 @@ function checkBlock(block: StatementNode[], context: TypeCheckerContext) {
   }
 }
 
-export function importModule(fromModule: Module, toModule: Module, scopes: SymbolScopes) {
+export function importModule(fromModule: Module, toModule: Module, context: TypeCheckerContext) {
   // Import all exported things defined in the module if no names are given.
   // We do not export anything transiently.
   fromModule.types.lookup.forEach((type, name) => {
@@ -1592,7 +1674,7 @@ export function importModule(fromModule: Module, toModule: Module, scopes: Symbo
     const variable = fromModule.variables.get(name)!;
     if (variable.location.source.path == fromModule.source.path && variable.exported) {
       toModule.variables.set(name, variable);
-      scopes.add(name, variable);
+      context.addToScope(name, variable);
     }
   }
 }

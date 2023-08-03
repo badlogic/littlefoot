@@ -6,6 +6,7 @@ import example from "../tests/example.lf";
 import { Editor } from "./editor";
 import { AstNode, BaseAstNode, traverseAst } from "../lib/ast";
 import { Visualizer } from "./visualizer";
+import { LittlefootCompletionsProvider } from "./completions";
 
 setGenerateTypeIds(true);
 const editorContainer = document.querySelector("#editor") as HTMLTextAreaElement;
@@ -15,6 +16,7 @@ const modulesDiv = document.querySelector("#modules") as HTMLDivElement;
 let outputApp: any = null;
 let errors: LittleFootError[] = [];
 let modules = new Map<string, Module>();
+let completions = new LittlefootCompletionsProvider();
 
 const editor = new Editor(
   editorContainer,
@@ -26,6 +28,7 @@ const editor = new Editor(
     highlightSelection(start, end);
   }
 );
+editor.setCompletionProvider(completions);
 
 const stored = localStorage.getItem("source");
 if (stored) editor.value = stored;
@@ -40,7 +43,7 @@ function compileText(value: string) {
   modules = context.modules;
   errors = context.errors;
   console.log(`Compilation took: ${(performance.now() - start).toFixed(2)} ms`);
-
+  completions.modules = modules;
   showModules(modules);
   showErrors(errors);
   showOutput("Module source.lf", modules.get("source.lf")?.ast);

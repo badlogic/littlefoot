@@ -326,15 +326,21 @@ export class NamedFunctionType extends BaseType {
 }
 
 export type Type = PrimitiveType | ListType | MapType | RecordType | FunctionType | UnionType | NamedType | NamedFunctionType;
-
+export const UnknownType = new PrimitiveType("$unknown");
 export const NothingType = new PrimitiveType("nothing");
 export const BooleanType = new PrimitiveType("boolean");
-export const NumberType = new PrimitiveType("number");
+export const Int8Type = new PrimitiveType("int8");
+export const Int16Type = new PrimitiveType("int16");
+export const Int32Type = new PrimitiveType("int32");
+export const Int64Type = new PrimitiveType("int64");
+export const Float32Type = new PrimitiveType("float32");
+export const Float64Type = new PrimitiveType("float64");
+export const NumberType = Float64Type;
 export const StringType = new PrimitiveType("string");
-export const UnknownType = new PrimitiveType("$unknown");
-export const AnyType = new PrimitiveType("$any"); // Used for generics so we can do some type checking.
+export const AnyType = new PrimitiveType("$any");
 export const ResolvingTypeMarker = new PrimitiveType("$resolving");
-nextTypeId = ResolvingTypeMarker.id + 1;
+export const primitiveTypes = [NothingType, BooleanType, Int8Type, Int16Type, Int32Type, Int64Type, Float64Type, NumberType, StringType];
+nextTypeId = ResolvingTypeMarker.id + 2;
 
 function assertNever(x: never) {
   throw new Error("Unexpected object: " + x);
@@ -474,7 +480,13 @@ export class Types {
   constructor() {
     this.add(NothingType.name, NothingType);
     this.add(BooleanType.name, BooleanType);
-    this.add(NumberType.name, NumberType);
+    this.add(Int8Type.name, Int8Type);
+    this.add(Int16Type.name, Int16Type);
+    this.add(Int32Type.name, Int32Type);
+    this.add(Int64Type.name, Int64Type);
+    this.add(Float32Type.name, Float32Type);
+    this.add(Float64Type.name, Float64Type);
+    this.add("number", NumberType);
     this.add(StringType.name, StringType);
     this.add(UnknownType.name, UnknownType);
   }

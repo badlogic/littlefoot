@@ -2,7 +2,7 @@ import { LittleFootError } from "./error";
 // prettier-ignore
 import { IdentifierToken, NothingToken, NumberToken, OperatorToken, RecordOpeningToken, StringToken, TokenStream, tokenize } from "./tokenizer";
 // prettier-ignore
-import { AsOperatorNode, AstNode, BinaryOperatorNode, BooleanLiteralNode, BreakNode, ContinueNode, DoNode, ExpressionNode, ForEachNode, ForNode, FunctionCallNode, FunctionLiteralNode, FunctionNode, FunctionTypeNode, IfNode, ImportNode, ImportedNameNode, IsOperatorNode, ListLiteralNode, ListTypeNode, LoopVariable, MapLiteralNode, MapOrListAccessNode, MapTypeNode, MemberAccessNode, MethodCallNode, MixinTypeNode, NameAndTypeNode, NothingLiteralNode, NumberLiteralNode, RecordLiteralNode, RecordTypeNode, ReturnNode, StatementNode, StringLiteralNode, TernaryOperatorNode, TypeNode, TypeReferenceNode, TypeSpecifierNode, UnaryOperatorNode, UnionTypeNode, VariableAccessNode, VariableNode, WhileNode } from "./ast";
+import { AsOperatorNode, AstNode, BinaryOperatorNode, BooleanLiteralNode, BreakNode, ContinueNode, DoNode, ExpressionNode, ForEachNode, ForNode, FunctionCallNode, FunctionLiteralNode, FunctionNode, FunctionTypeNode, IfNode, ImportNode, ImportedNameNode, IncompleteExpressionNode, IsOperatorNode, ListLiteralNode, ListTypeNode, LoopVariable, MapLiteralNode, MapOrListAccessNode, MapTypeNode, MemberAccessNode, MethodCallNode, MixinTypeNode, NameAndTypeNode, NothingLiteralNode, NumberLiteralNode, RecordLiteralNode, RecordTypeNode, ReturnNode, StatementNode, StringLiteralNode, TernaryOperatorNode, TypeNode, TypeReferenceNode, TypeSpecifierNode, UnaryOperatorNode, UnionTypeNode, VariableAccessNode, VariableNode, WhileNode } from "./ast";
 import { Source, SourceLocation } from "./source";
 
 export enum Attribute {
@@ -462,6 +462,14 @@ function parseFor(stream: TokenStream) {
 export type ExpressionContext = { inRecord: boolean; inParans: boolean };
 
 function parseExpression(stream: TokenStream, context: ExpressionContext = { inRecord: false, inParans: false }): ExpressionNode {
+  // FIXME to support auto-complete, we need to
+  // 1. Catch errors in parseMemberAccessOrCall()
+  // 2. Create an `IncompleteExpressionNode` that wraps the exception and the node created thus far
+  // 3. Check for IncompleteExpressionNodes in the type checker once it's done assingning types
+  // 4. The auto-completer gets a cursor position, finds the AST node that's closest to it
+  //    - If the cursor is on or right behind the AST Node
+  //       - If its an IncompleteExpressionNode with a wrapped MemberAccess node, look up possible members/functions
+  //       - If its a VariableAccessNode, suggest local variables and functions (partially/fuzzily) matching the name
   return parseTernaryOperator(stream, context);
 }
 
@@ -624,43 +632,46 @@ function parseLiteralOrVariableAccess(stream: TokenStream): ExpressionNode {
 }
 
 function parseMemberAccessOrCall(expression: ExpressionNode, stream: TokenStream) {
-  // FIXME previously, we expected expression to be a VariableAccess. Now it can be
-  // any type of expression. This leads to ambiguities with the [] operator.
-  //
-  // E.g. `nothing [0, 1, 2, 3]` will result in a method call instead of two separate
-  // expressions.
-  //
-  // This problem is exhibited in the example.lf file. Need to use ";" ...
   let result: ExpressionNode = expression;
-  while (stream.hasMore() && stream.matchValues(["(", "[", ".", ";"])) {
-    if (stream.matchValue("(")) {
-      const openingParanthesis = stream.expectValue("(");
-      const args = parseArguments(stream);
-      const closingParanthesis = stream.expectValue(")");
-      if (result instanceof VariableAccessNode || result instanceof MapOrListAccessNode) {
-        result = new FunctionCallNode(result, args, closingParanthesis);
-      } else if (result instanceof MemberAccessNode) {
-        result = new MethodCallNode(result, args, closingParanthesis);
-      } else if (result instanceof FunctionLiteralNode) {
-        result = new FunctionCallNode(result, args, closingParanthesis);
-      } else {
-        throw new LittleFootError(
-          SourceLocation.from(openingParanthesis.location, closingParanthesis.location),
-          `Expected a variable, field, method, or function literal.`
-        );
+  try {
+    while (stream.hasMore() && stream.matchValues(["(", "[", ".", ";"])) {
+      if (stream.matchValue("(")) {
+        const openingParanthesis = stream.expectValue("(");
+        const args = parseArguments(stream);
+        const closingParanthesis = stream.expectValue(")");
+        if (result instanceof VariableAccessNode || result instanceof MapOrListAccessNode) {
+          result = new FunctionCallNode(result, args, closingParanthesis);
+        } else if (result instanceof MemberAccessNode) {
+          result = new MethodCallNode(result, args, closingParanthesis);
+        } else if (result instanceof FunctionLiteralNode) {
+          result = new FunctionCallNode(result, args, closingParanthesis);
+        } else {
+          throw new LittleFootError(
+            SourceLocation.from(openingParanthesis.location, closingParanthesis.location),
+            `Expected a variable, field, method, or function literal.`
+          );
+        }
+      } else if (stream.matchValue("[")) {
+        const openingBracket = stream.expectValue("[");
+        const keyOrIndex = parseExpression(stream);
+        const lastToken = stream.expectValue("]");
+        result = new MapOrListAccessNode(openingBracket, result, keyOrIndex, lastToken);
+      } else if (stream.matchValue(".", true)) {
+        const identifier = stream.expectType(IdentifierToken);
+        result = new MemberAccessNode(result, identifier);
+      } else if (stream.matchValue(";", true)) {
+        while (stream.matchValue(";", true)); // Consume follow up ;
+        break;
       }
-    } else if (stream.matchValue("[")) {
-      const openingBracket = stream.expectValue("[");
-      const keyOrIndex = parseExpression(stream);
-      const lastToken = stream.expectValue("]");
-      result = new MapOrListAccessNode(openingBracket, result, keyOrIndex, lastToken);
-    } else if (stream.matchValue(".", true)) {
-      const identifier = stream.expectType(IdentifierToken);
-      result = new MemberAccessNode(result, identifier);
-    } else if (stream.matchValue(";", true)) {
-      while (stream.matchValue(";", true)); // Consume follow up ;
-      break;
     }
+  } catch (e) {
+    let error: LittleFootError;
+    if (e instanceof LittleFootError) {
+      error = e;
+    } else {
+      error = new LittleFootError(result.location, "Internal error: " + (e as any).message + "\n" + (e as any).stack);
+    }
+    result = new IncompleteExpressionNode(result, error);
   }
   return result;
 }
