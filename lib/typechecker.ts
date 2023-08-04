@@ -2452,6 +2452,12 @@ function coerceNumericTypes(from: ExpressionNode, to: Type): ExpressionNode {
   return from;
 }
 
+/**
+ * Given a list of arguments and a function name, find the best matching function in the current context.
+ *
+ * If the best match is an uninstantiated generic function, infer the generic type parameter bindings, instantiate,
+ * and type check it.
+ */
 function inferClosestFunction(location: SourceLocation, target: AstNode, name: string, args: ExpressionNode[], context: TypeCheckerContext) {
   // Lookup the best fitting functions for the given args. This will also
   // call checkFunctionNode in case the function has no return type set yet.
@@ -2840,10 +2846,34 @@ function inferGenericTypeBindings(
  * If the provided bindings do not cover all generic type parameters, an error will be raised. This happens if not all generic
  * type bindings could be inferred via {@link inferGenericTypeBindings}.
  *
- * The function creates a deep copy of the generic named type or named function and then replaces each occurance of a generic
- * type parameter with its binding.
+ * The function creates a deep copy of the generic {@link NamedType} or {@link NamedFunctionType} and replaces each occurance
+ * of a generic type parameter with its binding.
  *
- * This instantiated generic type can then be properly type checked
+ * This instantiated generic type can then be properly type checked. E.g.:
+ *
+ * func foo[T](a: T, b: T): T
+ *  return a + b
+ * end
+ *
+ * foo(1)
+ *
+ * When the function definition of `foo()` is encountered, its type is instantiated with all bindings pointing to the `AnyType`.
+ * The function body is then rudimentarely type checked. Operations on values of the `AnyType` are leniently type checked. E.g. in
+ * the case above, both `a` and `b` have type `AnyType`. The type checker will not report an error that the addition operator
+ * is not defined for `AnyType`. Search the source code for `AnyType` to see how this leniency is implemented, so generic functions
+ * can be mostly type checked without knowing the concrete type bindings.
+ *
+ * Once the function definition has been typed checked, a call to `foo()` is encountered. The {@link inferClosestFunction} function
+ * will select the best fitting function, which is the generic `foo()` function. It will then infer the generic type parameter
+ * bindings based on the argument `1` (a `number`) and then instantiate the function with this generic type parameter binding
+ * (`T -> number`)). The resulting concrete instantiated function type can then be fully type checked.
+ *
+ * Another call to `foo()` may look like this:
+ *
+ * foo(true)
+ *
+ * Here, the full type check of the instantiated function `foo[boolean](a: boolean, b: boolean): boolean` will fail, as the
+ * `+` operator is undefined for the type `boolean`.
  */
 function instantiateGenericTypeWithBindings(
   node: AstNode,
