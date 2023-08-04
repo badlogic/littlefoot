@@ -869,7 +869,7 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
           );
         }
       } else {
-        widestType = node.loopVariable.type = findBiggestNumericType([node.from.type, node.to.type, node.step ? node.step.type : node.to.type]);
+        widestType = node.loopVariable.type = findWidestNumericType([node.from.type, node.to.type, node.step ? node.step.type : node.to.type]);
       }
 
       let assignable = isAssignableTo(node.from, widestType, context);
@@ -1066,7 +1066,7 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
             if (closestFunc.length > 1) {
               // If the operands are numeric types, try again with the widest possible type
               if (isNumericType(leftType) && isNumericType(rightType)) {
-                const widestType = findBiggestNumericType([leftType, rightType]);
+                const widestType = findWidestNumericType([leftType, rightType]);
                 const left = coerceNumericTypes(node.leftExpression, widestType);
                 const right = coerceNumericTypes(node.rightExpression, widestType);
                 closestFunc = getClosestFunction(context, node.operator.value, [left, right]);
@@ -1717,7 +1717,13 @@ function isAssignableTo(from: ExpressionNode, to: Type, context: TypeCheckerCont
   inferTypesOfEmptyListAndMapLiterals(from, to, context);
   from = expandLiteralValueTypesToUnions(from, to, context);
   from = coerceNumericTypes(from, to);
-  return { isAssignable: typeIsAssignableTo(from.type, to), from };
+  const isAssignable = typeIsAssignableTo(from.type, to);
+  // Final pass for unions. If from is assignable and itself not a union
+  // and to is a union, box from.
+  if (isAssignable && rawType(from.type).kind != "union" && rawType(to).kind == "union") {
+    from = new UnionExpansionNode(from, to);
+  }
+  return { isAssignable, from };
 }
 
 // Finds empty lists and maps in literals and infers their type based on the
@@ -1918,7 +1924,7 @@ function expandLiteralValueTypesToUnions(from: ExpressionNode, to: Type, context
               if (candidates.length > 1) {
                 throw new LittleFootError(
                   from.location,
-                  `Must expand type ${from.type.signature} to a type in union ${toType.elementType.signature}, but multiple candidates were found.`,
+                  `Tried to expand type ${from.type.signature} to a type in union ${toType.elementType.signature}, but multiple candidates were found.`,
                   `Candidates:\n` + candidates.map((type) => indent(1) + type.signature).join("\n")
                 );
               } else {
@@ -2011,7 +2017,7 @@ function expandLiteralValueTypesToUnions(from: ExpressionNode, to: Type, context
               if (candidates.length > 1) {
                 throw new LittleFootError(
                   from.location,
-                  `Must expand type ${from.type.signature} to a type in union ${toValueType.signature}, but multiple candidates were found.`,
+                  `Tried to expand type ${from.type.signature} to a type in union ${toValueType.signature}, but multiple candidates were found.`,
                   `Candidates:\n` + candidates.map((type) => type.signature).join("\n")
                 );
               } else {
@@ -2099,6 +2105,7 @@ function expandLiteralValueTypesToUnions(from: ExpressionNode, to: Type, context
       for (const unionType of toType.types) {
         // If we have a perfect type match, select it
         if (isEqual(from.type, unionType)) {
+          candidates = [unionType];
           break;
         }
         // Otherwise, check if from is assignable to to and if so
@@ -2117,7 +2124,7 @@ function expandLiteralValueTypesToUnions(from: ExpressionNode, to: Type, context
         if (candidates.length > 1) {
           throw new LittleFootError(
             from.location,
-            `Must expand type ${from.type.signature} to a type in union ${to.signature}, but multiple candidates were found.`,
+            `Tried to expand type ${from.type.signature} to a type in union ${to.signature}, but multiple candidates were found.`,
             `Candidates:\n` + candidates.map((type) => indent(1) + type.signature).join("\n")
           );
         }
@@ -2128,7 +2135,6 @@ function expandLiteralValueTypesToUnions(from: ExpressionNode, to: Type, context
 }
 
 const numericTypes = new Set([Int8Type, Int16Type, Int32Type, Float32Type, Float64Type]);
-const integerTypes = new Set([Int8Type, Int16Type, Int32Type]);
 const canWidenFrom = new Map<PrimitiveType, Set<PrimitiveType>>();
 canWidenFrom.set(Int8Type, new Set([Int16Type, Int32Type, Float32Type, Float64Type]));
 canWidenFrom.set(Int16Type, new Set([Int32Type, Float32Type, Float64Type]));
@@ -2141,13 +2147,7 @@ function isNumericType(type: Type) {
   return numericTypes.has(rType);
 }
 
-function isIntegerType(type: Type) {
-  const rType = rawType(type);
-  if (rType.kind != "primitive") return false;
-  return integerTypes.has(rType);
-}
-
-function findBiggestNumericType(types: Type[]): PrimitiveType {
+function findWidestNumericType(types: Type[]): PrimitiveType {
   let widestType = UnknownType;
   for (const type of types) {
     if (!isNumericType(type)) continue;
@@ -2159,7 +2159,7 @@ function findBiggestNumericType(types: Type[]): PrimitiveType {
   return widestType;
 }
 
-function getSmallestNumericType(num: number, isHex = false) {
+function getNarrowestNumericType(num: number, isHex = false) {
   let isFloat = !(num % 1 === 0);
 
   if (!isFloat && num >= -128 && num <= (isHex ? 255 : 127)) return Int8Type;
@@ -2246,10 +2246,42 @@ function coerceNumericTypes(from: ExpressionNode, to: Type): ExpressionNode {
     return from;
   }
 
-  // FIXME also handle the case where to is a union and from is not
-  if (toType.kind == "union" && fromType.kind != "union") {
-    // FIXME implement numeric coercion with unions
-    throw new LittleFootError(from.location, "Numeric coercion with unions not implemented.");
+  // If from is a number literal, narrow its type based on its value if possible.
+  if (from.kind == "number literal") {
+    if (!from.token.value.includes(".")) {
+      from.type = fromType = getNarrowestNumericType(from.token.numericValue, from.token.value.startsWith("0x") || from.token.value.startsWith("0b"));
+    }
+  }
+
+  // When to is a union, and from is a numeric type, try to find
+  // a fitting type in the union and coerce to it.
+  if (toType.kind == "union" && isNumericType(fromType) && fromType.kind == "primitive") {
+    let candidates: Type[] = [];
+    for (const unionType of toType.types) {
+      // If it's a perfect match, select it.
+      if (isEqual(fromType, unionType)) {
+        candidates.push(unionType);
+        continue;
+      }
+      // Otherwise, check if from can be widened to to and if so
+      // add it to the list of candidates.
+      if (unionType.kind == "primitive" && canWidenFrom.get(fromType)?.has(unionType)) {
+        candidates.push(unionType);
+      }
+    }
+    if (candidates.length == 1) {
+      // Create a widening node
+      from = new NumericWideningNode(from, candidates[0]);
+    } else {
+      if (candidates.length > 1) {
+        throw new LittleFootError(
+          from.location,
+          `Tried to widen numeric type ${from.type.signature} to a type in union ${to.signature}, but multiple candidates were found.`,
+          `Candidates:\n` + candidates.map((type) => indent(1) + type.signature).join("\n")
+        );
+      }
+    }
+    return from;
   }
 
   // We've reached the leaves in the types. From here on, both must be
@@ -2258,14 +2290,6 @@ function coerceNumericTypes(from: ExpressionNode, to: Type): ExpressionNode {
   if (fromType.kind != "primitive") return from;
   if (toType.kind != "primitive") return from;
   if (!isNumericType(fromType) || !isNumericType(toType)) return from;
-
-  // If from is a number literal, narrow its type if possible
-  // based on its value.
-  if (from.kind == "number literal") {
-    if (!from.token.value.includes(".")) {
-      from.type = fromType = getSmallestNumericType(from.token.numericValue, from.token.value.startsWith("0x") || from.token.value.startsWith("0b"));
-    }
-  }
 
   // If they are the same type, we do nothing
   if (fromType == toType) return from;
