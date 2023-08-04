@@ -207,7 +207,7 @@ function parseTypeSpecifier(stream: TokenStream) {
     } else {
       if (stream.hasMore()) {
         const token = stream.next();
-        throw new LittleFootError(token.location, `Expected a type specifier, but got ${token.value}.`);
+        throw new LittleFootError(token.location, `Expected a type specifier, but got '${token.value}'.`);
       } else {
         throw new LittleFootError(
           new SourceLocation(stream.source, stream.source.text.length, stream.source.text.length),
@@ -438,9 +438,13 @@ function parseFor(stream: TokenStream) {
       block.push(parseStatement(stream));
     }
     const lastToken = stream.expectValue("end");
-    return new ForEachNode(firstToken, new LoopVariable(loopVariable), list, block, lastToken);
+    return new ForEachNode(firstToken, new LoopVariable(loopVariable, null), list, block, lastToken);
   } else {
     const loopVariable = stream.expectType(IdentifierToken);
+    let typeSpecifier: TypeSpecifierNode | null = null;
+    if (stream.matchValue(":", true)) {
+      typeSpecifier = parseTypeSpecifier(stream);
+    }
     stream.expectValue("from");
     const from = parseExpression(stream);
     stream.expectValue("to");
@@ -455,7 +459,7 @@ function parseFor(stream: TokenStream) {
       block.push(parseStatement(stream));
     }
     const lastToken = stream.expectValue("end");
-    return new ForNode(firstToken, new LoopVariable(loopVariable), from, to, step, block, lastToken);
+    return new ForNode(firstToken, new LoopVariable(loopVariable, typeSpecifier), from, to, step, block, lastToken);
   }
 }
 
@@ -621,7 +625,7 @@ function parseLiteralOrVariableAccess(stream: TokenStream): ExpressionNode {
     const token = stream.next();
     throw new LittleFootError(
       token.location,
-      `Expected a string, number, boolean, variable, field, map, list, function or method call, but got ${token.value}.`
+      `Expected a string, number, boolean, variable, field, map, list, function or method call, but got '${token.value}'.`
     );
   } else {
     throw new LittleFootError(

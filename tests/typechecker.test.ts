@@ -3,6 +3,39 @@ import { ListType, MapType, NameAndType, NamedType, NothingType, NumberType, Rec
 import { testCompile } from "./utils";
 
 describe("Typechecker tests", () => {
+  it("Should coerce numeric types", () => {
+    const { errors } = testCompile(`
+    var z3 = [0, 123, 9] as [int8 | string]
+    var z = [[0, 123, 9]] as [[int8]]
+
+    for i from 0 to 10 step -23 do
+    end
+
+    var j = 123 as int8
+    var l: number = j * j
+    var k: number = j * 3 as int16 / 2
+
+    var zz = [0, 123, 9] as [int8]
+
+
+    var y = {"a": 0} as { int8 | int16 }
+
+    var x: <x: int8, y: int16> = <x: 0, y: 120>
+
+    func foo(v: <x: int8>)
+    end
+
+    foo(<x: 0>)
+
+    func bar[T](v: <x: T>): T
+      return v.x + 1 as T
+    end
+
+    bar(<x: 0 as int8>)
+    `);
+    expect(errors.length).toBe(0);
+  });
+
   it("Should not allow access to enclosing scopes for function litearls, except the module scope", () => {
     const { errors } = testCompile(`
     var x = 0

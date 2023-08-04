@@ -167,10 +167,13 @@ export class UnionType extends BaseType {
     for (const type of this.types) {
       type.updateSignature();
     }
-    this.signature = this.types
-      .map((type) => type.signature)
-      .sort()
-      .join("|");
+    this.signature =
+      this.types.length == 1
+        ? this.types[0].signature + "|"
+        : this.types
+            .map((type) => type.signature)
+            .sort()
+            .join("|");
   }
 }
 

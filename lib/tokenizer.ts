@@ -8,7 +8,7 @@ export abstract class Token {
 export class NothingToken extends Token {}
 export class BoolToken extends Token {}
 export class NumberToken extends Token {
-  constructor(location: SourceLocation, value: string, public readonly numberValue: number, comments: CommentToken[]) {
+  constructor(location: SourceLocation, value: string, public readonly numericValue: number, comments: CommentToken[]) {
     super(location, value, comments);
   }
 }
@@ -98,7 +98,7 @@ export function tokenize(source: Source, errors: LittleFootError[]) {
   const tokens: Token[] = [];
   let comments = [];
   for (let i = 0, n = text.length; i < n; ) {
-    const char = text.charAt(i);
+    let char = text.charAt(i);
 
     // ignore whitespace
     if (char == "\r" || char == " " || char == "\t") {
@@ -126,32 +126,18 @@ export function tokenize(source: Source, errors: LittleFootError[]) {
       continue;
     }
 
-    // operators
-    if (operatorStarts.has(char)) {
-      let start = i;
-      if (i == n && operators.has(char)) {
-        tokens.push(new OperatorToken(new SourceLocation(source, start, i), char, comments));
-        comments = [];
-        continue;
-      }
-      if (operators.has(char + text.charAt(i + 1))) {
-        tokens.push(new OperatorToken(new SourceLocation(source, start, i + 2), char + text.charAt(i + 1), comments));
-        comments = [];
-        i += 2;
-        continue;
-      }
-      if (operators.has(char)) {
-        tokens.push(new OperatorToken(new SourceLocation(source, start, i + 1), char, comments));
-        comments = [];
-        i++;
-        continue;
-      }
-    }
-
-    // numbers
-    if (isDigit(char)) {
+    // numbers, must pull - into the number if its not a hex or binary number
+    // hence the humongous conditional...
+    if (
+      isDigit(char) ||
+      (char == "-" && i + 1 < text.length && isDigit(text[i + 1]) && (i + 2 < text.length ? text[i + 2] != "b" && text[i + 2] != "x" : true))
+    ) {
       let start = i;
       let value = char;
+      if (char == "-") {
+        char = text[++i];
+        value += char;
+      }
       i++;
 
       if (i == n) {
@@ -218,6 +204,28 @@ export function tokenize(source: Source, errors: LittleFootError[]) {
         }
         tokens.push(new NumberToken(new SourceLocation(source, start, i), value, Number.parseFloat(value), comments));
         comments = [];
+        continue;
+      }
+    }
+
+    // operators
+    if (operatorStarts.has(char)) {
+      let start = i;
+      if (i == n && operators.has(char)) {
+        tokens.push(new OperatorToken(new SourceLocation(source, start, i), char, comments));
+        comments = [];
+        continue;
+      }
+      if (operators.has(char + text.charAt(i + 1))) {
+        tokens.push(new OperatorToken(new SourceLocation(source, start, i + 2), char + text.charAt(i + 1), comments));
+        comments = [];
+        i += 2;
+        continue;
+      }
+      if (operators.has(char)) {
+        tokens.push(new OperatorToken(new SourceLocation(source, start, i + 1), char, comments));
+        comments = [];
+        i++;
         continue;
       }
     }

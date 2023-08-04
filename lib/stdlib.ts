@@ -5,6 +5,12 @@ export external operator and(left: boolean, right: boolean): boolean;
 export external operator xor(left: boolean, right: boolean): boolean;
 
 # int8 operators
+export external func int8(value: int8): int8;
+export external func int8(value: int16): int8;
+export external func int8(value: int32): int8;
+export external func int8(value: int64): int8;
+export external func int8(value: float32): int8;
+export external func int8(value: float64): int8;
 export external operator <(left: int8, right: int8): boolean;
 export external operator <=(left: int8, right: int8): boolean;
 export external operator >(left: int8, right: int8): boolean;
@@ -16,6 +22,13 @@ export external operator *(left: int8, right: int8): int8;
 export external operator %(left: int8, right: int8): int8;
 
 # int16 operators
+export external func int16(value: int8): int16;
+export external func int16(value: int16): int16;
+export external func int16(value: int32): int16;
+export external func int16(value: int64): int16;
+export external func int16(value: float32): int16;
+export external func int16(value: float64): int16;
+
 export external operator <(left: int16, right: int16): boolean;
 export external operator <=(left: int16, right: int16): boolean;
 export external operator >(left: int16, right: int16): boolean;
@@ -27,6 +40,13 @@ export external operator *(left: int16, right: int16): int16;
 export external operator %(left: int16, right: int16): int16;
 
 # int32 operators
+export external func int32(value: int8): int32;
+export external func int32(value: int16): int32;
+export external func int32(value: int32): int32;
+export external func int32(value: int64): int32;
+export external func int32(value: float32): int32;
+export external func int32(value: float64): int32;
+
 export external operator <(left: int32, right: int32): boolean;
 export external operator <=(left: int32, right: int32): boolean;
 export external operator >(left: int32, right: int32): boolean;
@@ -38,6 +58,13 @@ export external operator *(left: int32, right: int32): int32;
 export external operator %(left: int32, right: int32): int32;
 
 # float32 operators
+export external func float32(value: int8): float32;
+export external func float32(value: int16): float32;
+export external func float32(value: int32): float32;
+export external func float32(value: int64): float32;
+export external func float32(value: float32): float32;
+export external func float32(value: float64): float32;
+
 export external operator <(left: float32, right: float32): boolean;
 export external operator <=(left: float32, right: float32): boolean;
 export external operator >(left: float32, right: float32): boolean;
@@ -49,6 +76,20 @@ export external operator *(left: float32, right: float32): float32;
 export external operator %(left: float32, right: float32): float32;
 
 # number/float64 operators
+export external func float64(value: int8): float64;
+export external func float64(value: int16): float64;
+export external func float64(value: int32): float64;
+export external func float64(value: int64): float64;
+export external func float64(value: float32): float64;
+export external func float64(value: float64): float64;
+
+export external func number(value: int8): number;
+export external func number(value: int16): number;
+export external func number(value: int32): number;
+export external func number(value: int64): number;
+export external func number(value: float32): number;
+export external func number(value: float64): number;
+
 export external operator <(left: number, right: number): boolean;
 export external operator <=(left: number, right: number): boolean;
 export external operator >(left: number, right: number): boolean;
@@ -94,4 +135,4 @@ export external func print(message: string): nothing;
 export external func print(num: boolean): nothing;
 export external func print(num: number): nothing;
 `;
-//standardLibSource = "";
+// standardLibSource = "";

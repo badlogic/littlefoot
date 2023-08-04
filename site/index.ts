@@ -49,15 +49,20 @@ function compileText(value: string) {
   showOutput("Module source.lf", modules.get("source.lf")?.ast);
 }
 
+function highlightErrors(input: string): string {
+  input = input.replace(/error >>> .+?:\d+:/g, (match) => `<span style="color: red;">${match}</span>`);
+  return input.replace(/\^+/g, (match) => `<span style="color: red;">${match}</span>`);
+}
+
 function showErrors(errors: LittleFootError[]) {
   if (errors.length > 0) {
     editor.highlightErrors(errors);
     const html = errors
-      .map((error) => error.toStringWithCauses() + "\n")
+      .map((error) => error.toStringWithCauses() + "\n\n\n")
       .reduce((prev, curr) => prev + curr)
       .replace(/</g, "&lt;")
       .replace(/\n/g, "<br>");
-    errorDiv.innerHTML = html;
+    errorDiv.innerHTML = highlightErrors(html);
   } else {
     errorDiv.innerHTML = "0 Errors";
     editor.highlightErrors([]);

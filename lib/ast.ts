@@ -1,7 +1,7 @@
 import { LittleFootError } from "./error";
 import { SourceLocation } from "./source";
 import { BoolToken, IdentifierToken, NothingToken, NumberToken, OperatorToken, StringToken, Token } from "./tokenizer";
-import { Type, UnknownType } from "./types";
+import { Type, UnionType, UnknownType, rawType } from "./types";
 
 export type AstNode = ImportNode | ImportedNameNode | InternalNode | TopLevelNode;
 
@@ -42,7 +42,9 @@ export type ExpressionNode =
   | MapOrListAccessNode
   | FunctionCallNode
   | MethodCallNode
-  | IncompleteExpressionNode;
+  | IncompleteExpressionNode
+  | NumericWideningNode
+  | UnionExpansionNode;
 
 export abstract class BaseAstNode {
   public type: Type = UnknownType;
@@ -164,7 +166,7 @@ export class VariableNode extends BaseAstNode {
     firstToken: Token,
     public readonly name: IdentifierToken,
     public typeNode: TypeSpecifierNode | null,
-    public readonly initializer: ExpressionNode,
+    public initializer: ExpressionNode,
     public readonly exported: boolean,
     public readonly constant: boolean,
     public moduleVariable = false
@@ -196,7 +198,7 @@ export class WhileNode extends BaseAstNode {
 
 export class LoopVariable extends BaseAstNode {
   public readonly kind: "loop variable" = "loop variable";
-  constructor(public readonly name: IdentifierToken) {
+  constructor(public readonly name: IdentifierToken, public readonly typeSpecifier: TypeSpecifierNode | null) {
     super(name.location);
   }
 }
@@ -206,9 +208,9 @@ export class ForNode extends BaseAstNode {
   constructor(
     firstToken: Token,
     public readonly loopVariable: LoopVariable,
-    public readonly from: ExpressionNode,
-    public readonly to: ExpressionNode,
-    public readonly step: ExpressionNode | null,
+    public from: ExpressionNode,
+    public to: ExpressionNode,
+    public step: ExpressionNode | null,
     public readonly block: StatementNode[],
     lastToken: Token
   ) {
@@ -252,36 +254,28 @@ export class BreakNode extends BaseAstNode {
 
 export class ReturnNode extends BaseAstNode {
   public readonly kind: "return" = "return";
-  constructor(firstToken: Token, public readonly expression: ExpressionNode | null) {
+  constructor(firstToken: Token, public expression: ExpressionNode | null) {
     super(SourceLocation.from(firstToken.location, expression ? expression.location : firstToken.location));
   }
 }
 
 export class TernaryOperatorNode extends BaseAstNode {
   public readonly kind: "ternary operator" = "ternary operator";
-  constructor(
-    public readonly condition: ExpressionNode,
-    public readonly trueExpression: ExpressionNode,
-    public readonly falseExpression: ExpressionNode
-  ) {
+  constructor(public condition: ExpressionNode, public trueExpression: ExpressionNode, public falseExpression: ExpressionNode) {
     super(SourceLocation.from(condition.location, falseExpression.location));
   }
 }
 
 export class BinaryOperatorNode extends BaseAstNode {
   public readonly kind: "binary operator" = "binary operator";
-  constructor(
-    public readonly leftExpression: ExpressionNode,
-    public readonly operator: OperatorToken,
-    public readonly rightExpression: ExpressionNode
-  ) {
+  constructor(public leftExpression: ExpressionNode, public readonly operator: OperatorToken, public rightExpression: ExpressionNode) {
     super(SourceLocation.from(leftExpression.location, rightExpression.location));
   }
 }
 
 export class UnaryOperatorNode extends BaseAstNode {
   public readonly kind: "unary operator" = "unary operator";
-  constructor(public readonly operator: OperatorToken, public readonly expression: ExpressionNode) {
+  constructor(public readonly operator: OperatorToken, public expression: ExpressionNode) {
     super(SourceLocation.from(operator.location, expression.location));
   }
 }
@@ -295,7 +289,7 @@ export class IsOperatorNode extends BaseAstNode {
 
 export class AsOperatorNode extends BaseAstNode {
   public readonly kind: "as operator" = "as operator";
-  constructor(public readonly leftExpression: ExpressionNode, public readonly typeNode: TypeSpecifierNode) {
+  constructor(public leftExpression: ExpressionNode, public readonly typeNode: TypeSpecifierNode) {
     super(SourceLocation.from(leftExpression.location, typeNode.location));
   }
 }
@@ -411,6 +405,25 @@ export class IncompleteExpressionNode extends BaseAstNode {
   public readonly kind: "incomplete expression" = "incomplete expression";
   constructor(public readonly expression: ExpressionNode, public readonly error: LittleFootError) {
     super(expression.location);
+  }
+}
+
+export class NumericWideningNode extends BaseAstNode {
+  public readonly kind: "numeric widening" = "numeric widening";
+  constructor(public readonly expression: AstNode, narrowToType: Type) {
+    super(expression.location);
+    this.type = narrowToType;
+  }
+}
+
+export class UnionExpansionNode extends BaseAstNode {
+  public readonly kind: "union expansion" = "union expansion";
+  constructor(public readonly expression: AstNode, unionType: Type) {
+    super(expression.location);
+    this.type = unionType;
+    if (rawType(unionType).kind != "union") {
+      throw new LittleFootError(expression.location, `Internal error: created union expansion node with non-union type ${unionType.signature}.`);
+    }
   }
 }
 
@@ -596,6 +609,12 @@ export function traverseAst(node: AstNode, parent: AstNode | null, callback: (no
       }
       break;
     case "incomplete expression":
+      traverseAst(node.expression, node, callback);
+      break;
+    case "numeric widening":
+      traverseAst(node.expression, node, callback);
+      break;
+    case "union expansion":
       traverseAst(node.expression, node, callback);
       break;
     default:
