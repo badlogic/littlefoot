@@ -6,6 +6,7 @@ describe("Typechecker tests", () => {
   it("Should coerce numeric types", () => {
     const { errors } = testCompile(`
     var z3 = [0, 123, 9] as [int8 | string]
+    var z4 = [[0, 123, 9], ["test"]] as [[int8 | string]]
     var z = [[0, 123, 9]] as [[int8]]
 
     for i from 0 to 10 step -23 do
@@ -18,7 +19,7 @@ describe("Typechecker tests", () => {
     var zz = [0, 123, 9] as [int8]
 
 
-    var y = {"a": 0} as { int8 | int16 }
+    var y = {"a": 0} as { int8 | string }
 
     var x: <x: int8, y: int16> = <x: 0, y: 120>
 

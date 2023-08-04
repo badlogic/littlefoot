@@ -2194,11 +2194,50 @@ function coerceNumericTypes(from: ExpressionNode, to: Type): ExpressionNode {
 
   // Coerce numeric values in map literals
   if (from.kind == "map literal" && fromType.kind == "map" && toType.kind == "map") {
+    const toValueType = rawType(toType.valueType);
+    const fromValueType = rawType(fromType.valueType);
+
+    if (isNumericType(toValueType) && isNumericType(fromValueType)) {
+      // If both element types are numeric, coerce the elements of from
+      // and set its element type accordingly.
+      for (let i = 0; i < from.values.length; i++) {
+        from.values[i] = coerceNumericTypes(from.values[i], toValueType);
+      }
+      fromType.setValueType(toValueType);
+    } else {
+      // Otherwise, if the element types are lists, recurse down the type hierarchy
+      if (toValueType.kind == "list" && fromValueType.kind == "list") {
+        for (let i = 0; i < from.values.length; i++) {
+          coerceNumericTypes(from.values[i], toValueType);
+        }
+        fromType.setValueType(toValueType);
+      }
+    }
     return from;
   }
 
   // Coerce numeric values in record literals
   if (from.kind == "record literal" && fromType.kind == "record" && toType.kind == "record") {
+    // If from has less fields than to, the two record types
+    // can't be compatible so don't do anything.
+    if (from.fieldValues.length < toType.fields.length) return from;
+
+    for (let i = 0; i < from.fieldValues.length; i++) {
+      const fieldName = from.fieldNames[i];
+      const fieldValue = from.fieldValues[i];
+      let found = false;
+      for (const toField of toType.fields) {
+        if (fieldName.value !== toField.name) continue;
+        from.fieldValues[i] = coerceNumericTypes(fieldValue, toField.type);
+        found = true;
+        break;
+      }
+      if (!found) return from;
+    }
+    for (let i = 0; i < from.fieldValues.length; i++) {
+      fromType.fields[i].type = from.fieldValues[i].type;
+    }
+    fromType.updateSignature();
     return from;
   }
 
