@@ -484,6 +484,10 @@ describe("Typechecker tests", () => {
           node([], nothing)
         ], "test")
       ], 1)
+      var cc = <x: 0>
+      var ddd = [cc] as [<x: number> | float64]
+      var vv = 0 as int8
+      var z6 = [vv] as [float64 | string]
     `);
     expect(errors.length).toBe(0);
   });

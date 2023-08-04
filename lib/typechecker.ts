@@ -1450,7 +1450,6 @@ function reportFunctionNotFound(location: SourceLocation, name: string, args: Ex
       if (!isEqual(arg.type, param)) {
         arg.type = arg.type.copy();
         try {
-          // FIXME we aren't writting the possibly coerced node back. Likely fine.
           if (!isAssignableTo(arg, param, context).isAssignable) {
             supplementary += `${indent(2)}Parameter '${func.type.parameters[i].name}': expected type '${param.signature}', but got type '${
               arg.type.signature
@@ -1883,6 +1882,9 @@ function expandLiteralValueTypesToUnions(from: ExpressionNode, to: Type, context
       // with the union.
       if (toElementType.kind == "union") {
         if (typeIsAssignableTo(from.type.elementType, toElementType)) {
+          for (let i = 0; i < from.elements.length; i++) {
+            from.elements[i] = new UnionExpansionNode(from.elements[i], toType.elementType);
+          }
           from.type.setElementType(toType.elementType);
         } else {
           // For each element in the literal, find the best
@@ -1973,6 +1975,9 @@ function expandLiteralValueTypesToUnions(from: ExpressionNode, to: Type, context
         // If to's value type is a union, unify from's value type
         // with the union.
         if (typeIsAssignableTo(from.type.valueType, toValueType)) {
+          for (let i = 0; i < from.values.length; i++) {
+            from.values[i] = new UnionExpansionNode(from.values[i], toType.valueType);
+          }
           from.type.setValueType(toType.valueType);
         } else {
           // For each element in the literal, find the best
@@ -2244,7 +2249,7 @@ function coerceNumericTypes(from: ExpressionNode, to: Type): ExpressionNode {
   // FIXME also handle the case where to is a union and from is not
   if (toType.kind == "union" && fromType.kind != "union") {
     // FIXME implement numeric coercion with unions
-    // throw new LittleFootError(from.location, "Numeric coercion with unions not implemented.");
+    throw new LittleFootError(from.location, "Numeric coercion with unions not implemented.");
   }
 
   // We've reached the leaves in the types. From here on, both must be

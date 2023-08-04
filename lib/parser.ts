@@ -466,14 +466,6 @@ function parseFor(stream: TokenStream) {
 export type ExpressionContext = { inRecord: boolean; inParans: boolean };
 
 function parseExpression(stream: TokenStream, context: ExpressionContext = { inRecord: false, inParans: false }): ExpressionNode {
-  // FIXME to support auto-complete, we need to
-  // 1. Catch errors in parseMemberAccessOrCall()
-  // 2. Create an `IncompleteExpressionNode` that wraps the exception and the node created thus far
-  // 3. Check for IncompleteExpressionNodes in the type checker once it's done assingning types
-  // 4. The auto-completer gets a cursor position, finds the AST node that's closest to it
-  //    - If the cursor is on or right behind the AST Node
-  //       - If its an IncompleteExpressionNode with a wrapped MemberAccess node, look up possible members/functions
-  //       - If its a VariableAccessNode, suggest local variables and functions (partially/fuzzily) matching the name
   return parseTernaryOperator(stream, context);
 }
 
