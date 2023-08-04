@@ -62,7 +62,7 @@ function showErrors(errors: LittleFootError[]) {
       .reduce((prev, curr) => prev + curr)
       .replace(/</g, "&lt;")
       .replace(/\n/g, "<br>");
-    errorDiv.innerHTML = highlightErrors(html);
+    errorDiv.innerHTML = errors.length + " Errors\n\n" + highlightErrors(html);
   } else {
     errorDiv.innerHTML = "0 Errors";
     editor.highlightErrors([]);

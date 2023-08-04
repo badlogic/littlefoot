@@ -660,14 +660,17 @@ describe("Typechecker tests", () => {
 
   it("Should error on circular types", () => {
     const { errors } = testCompile(`
+      type c = c
       type a = number | b
       type b = a | number
 
-      var c: a = 0 as b
+      var v: a = 0 as b
     `);
 
-    expect(errors.length).toBe(1);
-    expect(errors[0].message).toEqual("Type 'b' circularly references itself.");
+    expect(errors.length).toBe(3);
+    expect(errors[0].message).toEqual("Type 'c' circularly references itself.");
+    expect(errors[1].message).toEqual("Type 'a' circularly references itself.");
+    expect(errors[2].message).toEqual("Type 'b' circularly references itself.");
   });
 
   it("Should validate simple named types", () => {

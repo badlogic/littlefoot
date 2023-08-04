@@ -4,7 +4,7 @@ export external operator or(left: boolean, right: boolean): boolean;
 export external operator and(left: boolean, right: boolean): boolean;
 export external operator xor(left: boolean, right: boolean): boolean;
 
-# int8 operators
+# int8 functions  & operators
 export external func int8(value: int8): int8;
 export external func int8(value: int16): int8;
 export external func int8(value: int32): int8;
@@ -21,7 +21,7 @@ export external operator /(left: int8, right: int8): int8;
 export external operator *(left: int8, right: int8): int8;
 export external operator %(left: int8, right: int8): int8;
 
-# int16 operators
+# int16 functions & operators
 export external func int16(value: int8): int16;
 export external func int16(value: int16): int16;
 export external func int16(value: int32): int16;
@@ -39,7 +39,7 @@ export external operator /(left: int16, right: int16): int16;
 export external operator *(left: int16, right: int16): int16;
 export external operator %(left: int16, right: int16): int16;
 
-# int32 operators
+# int32 functions & operators
 export external func int32(value: int8): int32;
 export external func int32(value: int16): int32;
 export external func int32(value: int32): int32;
@@ -57,7 +57,7 @@ export external operator /(left: int32, right: int32): int32;
 export external operator *(left: int32, right: int32): int32;
 export external operator %(left: int32, right: int32): int32;
 
-# float32 operators
+# float32 functions & operators
 export external func float32(value: int8): float32;
 export external func float32(value: int16): float32;
 export external func float32(value: int32): float32;
@@ -75,7 +75,7 @@ export external operator /(left: float32, right: float32): float32;
 export external operator *(left: float32, right: float32): float32;
 export external operator %(left: float32, right: float32): float32;
 
-# number/float64 operators
+# number/float64 functions & operators
 export external func float64(value: int8): float64;
 export external func float64(value: int16): float64;
 export external func float64(value: int32): float64;
@@ -100,18 +100,14 @@ export external operator /(left: number, right: number): number;
 export external operator *(left: number, right: number): number;
 export external operator %(left: number, right: number): number;
 
-export external operator +(left: string, right: string): string;
-
-# numeric type conversions
-
-
-# String functions
+# String functions & operators
 export external func length(str: string): number;
 export external func toString(n: nothing): string;
 export external func toString(n: number): string;
 export external func toString(n: boolean): string;
-export external operator [](str: string, index: number): string;
 export external func charAt(str: string, index: number): string;
+export external operator [](str: string, index: number): string;
+export external operator +(left: string, right: string): string;
 
 # List functions
 export external func length[T](list: [T]): number;
