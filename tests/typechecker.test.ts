@@ -3,6 +3,42 @@ import { ListType, MapType, NameAndType, NamedType, NothingType, NumberType, Rec
 import { testCompile } from "./utils";
 
 describe("Typechecker tests", () => {
+  it("Should handle is operator in ternary", () => {
+    testCompile(`
+    external func rollDice(damage: int32): int32;
+
+    type Monster = <health: int32>
+    type MeleeWeapon = <damage: int32>
+    type RangedWeapon = <minRange: int32, maxRange: int32>
+    type Weapon = MeleeWeapon | RangedWeapon
+
+    func attack(weapon: Weapon, monster: Monster, distance: int32)
+      if weapon is MeleeWeapon ?
+        distance > 1 :
+        distance < weapon.minRange or distance > weapon.maxRange
+        then
+        print("You are out of range.")
+      end
+
+      var damage: int32 = weapon is MeleeWeapon ?
+                          rollDice(weapon.damage) :
+                          weapon.maxRange - weapon.minRange
+
+      if monster.health <= damage then
+        print("You kill the monster!")
+        monster.health = 0
+      else
+        print("You wound the monster.")
+        monster.health = monster.health - damage
+      end
+    end
+
+    var weapon = MeleeWeapon(10)
+    var monster = Monster(10)
+    attack(weapon, monster, 1)
+    `);
+  });
+
   it("Should coerce numeric types", () => {
     const { errors } = testCompile(`
     var z3 = [0, 123, 9] as [int8 | string]

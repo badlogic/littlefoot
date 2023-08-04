@@ -1,5 +1,5 @@
 // prettier-ignore
-import { AstNode, BaseAstNode, DoNode, ExpressionNode, ForEachNode, ForNode, FunctionLiteralNode, FunctionNode, ImportNode, ImportedNameNode, IsOperatorNode, LoopVariable, NameAndTypeNode, NumericWideningNode, ReturnNode, StatementNode, TypeNode, TypeReferenceNode, TypeSpecifierNode, UnionExpansionNode, VariableAccessNode, VariableNode, WhileNode, traverseAst } from "./ast";
+import { AstNode, BaseAstNode, DoNode, ExpressionNode, ForEachNode, ForNode, FunctionLiteralNode, FunctionNode, ImportNode, ImportedNameNode, IsOperatorNode, LoopVariable, NameAndTypeNode, NumericWideningNode, ReturnNode, StatementNode, TypeNode, TypeReferenceNode, TypeSpecifierNode, UnionExpansionNode as UnionBoxingNode, VariableAccessNode, VariableNode, WhileNode, traverseAst, unbox } from "./ast";
 import { CompilerContext, Module, compileModule } from "./compiler";
 import { LittleFootError, indent } from "./error";
 import { SourceLocation } from "./source";
@@ -768,91 +768,40 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
         throw new LittleFootError(node.condition.location, `'if' condition must be a boolean but has type '${node.condition.type.signature}'.`);
       }
 
-      // Gather the "is" operators and check if they are negated.
-      const isOperators: {
-        isNegated: boolean;
-        isOperator: IsOperatorNode;
-        originalType: Type;
-        narrowedType: Type | null;
-        negatedType: Type | null;
-      }[] = [];
+      const isOperators = narrowTypesForIsExpression(node.condition, node.falseBlock.length > 0, context);
 
-      // Try/finally, as we need to reset the variable types so we can do proper recovery on the
-      // statement level.
-      let negated = false;
-      traverseAst(node.condition, node, (node) => {
-        if (node.kind == "unary operator" && node.operator.value == "not") negated = !negated;
-        if (node.kind == "is operator") {
-          isOperators.push({ isNegated: negated, isOperator: node, originalType: node.leftExpression.type, narrowedType: null, negatedType: null });
-        }
-        return true;
-      });
       try {
-        // Temporarily set the types of each variable found in the "is" operators
-        // to the type specified in the operator.
+        // FIXME we need to unbox the value from the union
+        // Narrow variables affected by is operator
         for (const operator of isOperators) {
-          if (operator.isOperator.leftExpression.kind != "variable access") {
-            throw new LittleFootError(operator.isOperator.leftExpression.location, "Must be a variable.");
-          }
-          const variable = context.getFromScope((operator.isOperator.leftExpression as VariableAccessNode).name.value)!;
-          const variableType = rawType((operator.originalType = variable.type));
-          // If the variable is generic, we assume it can be a union
-          if (!(variableType.kind == "union" || isGeneric(variableType))) {
-            throw new LittleFootError(operator.isOperator.leftExpression.location, "Variable type must be a union.");
-          }
-          operator.narrowedType = operator.isOperator.typeNode.type;
-          if (!typeIsAssignableTo(operator.isOperator.typeNode.type, variable.type)) {
-            throw new LittleFootError(
-              variable.location,
-              `Variable '${variable.name.value}' has type '${variable.type.signature}' and can never be type '${operator.narrowedType.signature}'.`
-            );
-          }
-
-          if (variableType.kind == "union") {
-            // If the variable is generic, we just use it for the negated type set as well, as it's an any type.
-            const newTypes = isGeneric(variableType)
-              ? [operator.originalType]
-              : variableType.types.filter((type) => !typeIsAssignableTo(type, operator.narrowedType!));
-            if (newTypes.length == 0 && (operator.isNegated || node.falseBlock.length > 0)) {
-              throw new LittleFootError(
-                operator.isOperator.location,
-                `Negation of 'is' operator results in empty type for '${variable.name.value}' in the ${operator.isNegated ? "true" : "false"} branch.`
-              ); // TODO better message
-            }
-            operator.negatedType = newTypes.length == 1 ? newTypes[0] : new UnionType(newTypes);
-          }
-
-          variable.type = operator.isNegated && operator.negatedType ? operator.negatedType : operator.narrowedType;
+          operator.variable!.type = operator.isNegated ? operator.negatedType : operator.narrowedType;
         }
 
         context.withScope(() => {
           checkBlock(node.trueBlock, context);
         });
 
-        // Reset the variable types narrowed down in "is" operators
+        // Reset variables affected by is operator
         for (const operator of isOperators) {
-          const variable = context.getFromScope((operator.isOperator.leftExpression as VariableAccessNode).name.value)!;
-          variable.type = operator.originalType;
+          operator.variable!.type = operator.originalType;
         }
 
         context.withScope(() => {
           checkBlock(node.elseIfs, context);
         });
 
-        // Set the negated types for the else block
+        // Narrow variables affected by is operator, negated
         for (const operator of isOperators) {
-          const variable = context.getFromScope((operator.isOperator.leftExpression as VariableAccessNode).name.value)!;
-          variable.type = operator.isNegated && operator.negatedType ? operator.narrowedType! : operator.negatedType!;
+          operator.variable!.type = operator.isNegated ? operator.narrowedType! : operator.negatedType!;
         }
 
         context.withScope(() => {
           checkBlock(node.falseBlock, context);
         });
       } finally {
-        // Reset the variable types
+        // Reset variables affected by is operator
         for (const operator of isOperators) {
-          const variable = context.getFromScope((operator.isOperator.leftExpression as VariableAccessNode).name.value)!;
-          variable.type = operator.originalType;
+          operator.variable!.type = operator.originalType;
         }
       }
 
@@ -989,18 +938,41 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
       break;
     case "ternary operator":
       checkNodeTypes(node.condition, context);
-      checkNodeTypes(node.trueExpression, context);
-      checkNodeTypes(node.falseExpression, context);
-      if (node.condition.type != BooleanType) {
-        throw new LittleFootError(
-          node.condition.location,
-          `Ternary operator ? condition must be a boolean but has type '${node.condition.type.signature}'.`
-        );
+
+      const isOperators = narrowTypesForIsExpression(node.condition, true, context);
+      try {
+        // FIXME we need to unbox the value from the union
+        // Narrow variables affected by is operator
+        for (const operator of isOperators) {
+          operator.variable!.type = operator.isNegated ? operator.negatedType : operator.narrowedType;
+        }
+
+        checkNodeTypes(node.trueExpression, context);
+
+        // Narrow variables affected by is operator, negated
+        for (const operator of isOperators) {
+          operator.variable!.type = operator.isNegated ? operator.narrowedType : operator.negatedType;
+        }
+
+        checkNodeTypes(node.falseExpression, context);
+        if (node.condition.type != BooleanType) {
+          throw new LittleFootError(
+            node.condition.location,
+            `Ternary operator ? condition must be a boolean but has type '${node.condition.type.signature}'.`
+          );
+        }
+      } finally {
+        // Reset variables affected by is operator
+        for (const operator of isOperators) {
+          operator.variable!.type = operator.originalType;
+        }
       }
 
       if (isEqual(node.trueExpression.type, node.falseExpression.type)) {
         node.type = node.trueExpression.type;
       } else {
+        // FIXME this needs a UnionExpansionNode somehow, or the code-gen
+        // special cases this.
         node.type = new UnionType([node.trueExpression.type, node.falseExpression.type]);
       }
       break;
@@ -1220,7 +1192,7 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
       break;
     case "list literal": {
       const seenSignatures = new Set<string>();
-      const elementTypes: Type[] = [];
+      let elementTypes: Type[] = [];
       for (const element of node.elements) {
         checkNodeTypes(element, context);
         if (!seenSignatures.has(element.type.signature)) {
@@ -1229,17 +1201,23 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
         }
       }
       if (node.typeNode) checkNodeTypes(node.typeNode, context);
+      elementTypes = unique(elementTypes);
       if (elementTypes.length == 0) {
         if (node.typeNode) node.type = new ListType(node.typeNode.type);
         else node.type = new ListType(UnknownType);
       } else {
         node.type = new ListType(elementTypes.length == 1 ? elementTypes[0] : new UnionType(elementTypes));
+        if (elementTypes.length > 1) {
+          for (let i = 0; i < node.elements.length; i++) {
+            node.elements[i] = new UnionBoxingNode(node.elements[i], node.type.elementType);
+          }
+        }
       }
       break;
     }
     case "map literal": {
       const seenSignatures = new Set<string>();
-      const valueTypes: Type[] = [];
+      let valueTypes: Type[] = [];
       for (const element of node.values) {
         checkNodeTypes(element, context);
         if (!seenSignatures.has(element.type.signature)) {
@@ -1248,11 +1226,17 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
         }
       }
       if (node.typeNode) checkNodeTypes(node.typeNode, context);
+      valueTypes = unique(valueTypes);
       if (valueTypes.length == 0) {
         if (node.typeNode) node.type = new MapType(node.typeNode.type);
         else node.type = new MapType(UnknownType);
       } else {
         node.type = new MapType(valueTypes.length == 1 ? valueTypes[0] : new UnionType(valueTypes));
+        if (valueTypes.length > 1) {
+          for (let i = 0; i < node.values.length; i++) {
+            node.values[i] = new UnionBoxingNode(node.values[i], node.type.valueType);
+          }
+        }
       }
       break;
     }
@@ -1441,12 +1425,82 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
     case "numeric widening":
       checkNodeTypes(node.expression, context);
       break;
-    case "union expansion":
+    case "union boxing":
       checkNodeTypes(node.expression, context);
       break;
     default:
       assertNever(node);
   }
+}
+
+type IsOperatorContext = {
+  isNegated: boolean;
+  isOperatorNode: IsOperatorNode;
+  originalType: Type;
+  narrowedType: Type;
+  negatedType: Type;
+  variable: Symbol | undefined;
+};
+
+function narrowTypesForIsExpression(expression: ExpressionNode, hasFalseBranch: boolean, context: TypeCheckerContext): IsOperatorContext[] {
+  // Gather the "is" operators and check if they are negated.
+  const isOperators: IsOperatorContext[] = [];
+
+  let negated = false;
+  traverseAst(expression, null, (node) => {
+    if (node.kind == "unary operator" && node.operator.value == "not") negated = !negated;
+    if (node.kind == "is operator") {
+      const originalType = node.leftExpression.type;
+      isOperators.push({
+        isNegated: negated,
+        isOperatorNode: node,
+        originalType,
+        narrowedType: originalType,
+        negatedType: originalType,
+        variable: undefined,
+      });
+    }
+    return true;
+  });
+
+  for (const operator of isOperators) {
+    if (operator.isOperatorNode.leftExpression.kind != "variable access") {
+      throw new LittleFootError(operator.isOperatorNode.leftExpression.location, "Must be a variable.");
+    }
+    const variableName = (operator.isOperatorNode.leftExpression as VariableAccessNode).name.value;
+    const variable = (operator.variable = context.getFromScope(variableName));
+    if (!variable) {
+      throw new LittleFootError(operator.isOperatorNode.leftExpression.location, `Can not find variable '${variableName}'.`);
+    }
+    const variableType = rawType((operator.originalType = variable.type));
+    // If the variable is generic, we assume it can be a union
+    if (!(variableType.kind == "union" || isGeneric(variableType))) {
+      throw new LittleFootError(operator.isOperatorNode.leftExpression.location, "Variable type must be a union.");
+    }
+    operator.narrowedType = operator.isOperatorNode.typeNode.type;
+    if (!typeIsAssignableTo(operator.isOperatorNode.typeNode.type, variable.type)) {
+      throw new LittleFootError(
+        variable.location,
+        `Variable '${variable.name.value}' has type '${variable.type.signature}' and can never be type '${operator.narrowedType.signature}'.`
+      );
+    }
+
+    if (variableType.kind == "union") {
+      // If the variable is generic, we just use it for the negated type set as well, as it's an any type.
+      const newTypes = isGeneric(variableType)
+        ? [operator.originalType]
+        : variableType.types.filter((type) => !typeIsAssignableTo(type, operator.narrowedType!));
+      if (newTypes.length == 0 && (operator.isNegated || hasFalseBranch)) {
+        throw new LittleFootError(
+          operator.isOperatorNode.location,
+          `Negation of 'is' operator results in empty type for '${variable.name.value}' in the ${operator.isNegated ? "true" : "false"} branch.`
+        ); // TODO better message
+      }
+      operator.negatedType = newTypes.length == 1 ? newTypes[0] : new UnionType(newTypes);
+    }
+  }
+
+  return isOperators;
 }
 
 function reportCandidatesFunctions(functions: NamedFunctionType[] | undefined, showArgCount = true) {
@@ -1695,6 +1749,7 @@ function checkOrInferFunctionReturnType(node: FunctionNode | FunctionLiteralNode
     }
     const returnTypes = returns.map((ret) => ret.type);
     if (returnTypes.length == 0) returnTypes.push(NothingType);
+    // FIXME need to union box the return values. What do we do with no-value-returns?
     const returnType = returnTypes.length == 1 ? returnTypes[0] : unify(returnTypes[0], new UnionType(returnTypes));
     return returnType;
   }
@@ -1800,7 +1855,7 @@ export function importModule(fromModule: Module, toModule: Module, context: Type
  * In the example above, the number literal `0` is boxed into a union of type
  * `string | number`, so it can be assigned to the field `x` of the record
  * literal. This boxing is achieved by wrapping the abstract syntax tree node
- * representing `0` in a {@link UnionExpansionNode}. Later, this node will indicate
+ * representing `0` in a {@link UnionBoxingNode}. Later, this node will indicate
  * to the code generator that the value generated by the AST node inside it
  * must be boxed into a union.
  *
@@ -1849,9 +1904,10 @@ export function importModule(fromModule: Module, toModule: Module, context: Type
  * If the assignability check succeeds, then a final check decides if the value
  * `from` needs to be boxed for assignment to `to`. If that's the case, then the
  * (possibly already wrapped) AST node of `from` is wrapped in a
- * {@link UnionExpansionNode} and returned to the caller.
+ * {@link UnionBoxingNode} and returned to the caller.
  */
 function isAssignableTo(from: ExpressionNode, to: Type): { isAssignable: boolean; from: ExpressionNode } {
+  from = unbox(from);
   inferTypesOfEmptyListAndMapLiterals(from, to);
   from = expandAndBoxLiteralValueTypesToUnions(from, to);
   from = coerceNumericTypes(from, to);
@@ -1859,33 +1915,38 @@ function isAssignableTo(from: ExpressionNode, to: Type): { isAssignable: boolean
   // Final pass for unions. If from is assignable and itself not a union
   // and to is a union, box from.
   if (isAssignable && rawType(from.type).kind != "union" && rawType(to).kind == "union") {
-    from = new UnionExpansionNode(from, to);
+    from = new UnionBoxingNode(from, to);
   }
   return { isAssignable, from };
 }
 
 // Finds empty lists and maps in literals and infers their type based on the
 // `to` type.
-function inferTypesOfEmptyListAndMapLiterals(from: AstNode, to: Type): boolean {
+function inferTypesOfEmptyListAndMapLiterals(from: ExpressionNode, to: Type): boolean {
   const toType = rawType(to);
+  from = unbox(from);
 
   // The from type has an empty list or map literal in it. We need to infer
   // its type if possible. The from type must be a (nested) list, map, or record at
   // this point, and to must have a corresponding type.
   if (hasEmptyListOrMap(from.type)) {
+    // Unbox from
     if (from.kind == "list literal" && from.type.kind == "list") {
       // If the from list literal is not nested and empty, it has type
       // UnknownType. Assign the to type.
       if (toType.kind == "list") {
-        if (from.elements.length == 0 && from.type.elementType.signature == UnknownType.signature) {
+        if (from.elements.length == 0 && from.type.elementType == UnknownType) {
           from.type = to;
         } else {
           // Otherwise, the from list literal has a nested value with an
           // unknown type. Recursively check and resolve the unknown types
           // of empty list or map literal values.
-          for (const element of from.elements) {
-            if (!inferTypesOfEmptyListAndMapLiterals(element, toType.elementType)) return false;
+          for (let i = 0; i < from.elements.length; i++) {
+            const unboxedElement = unbox(from.elements[i]);
+            if (!inferTypesOfEmptyListAndMapLiterals(unboxedElement, toType.elementType)) return false;
+            from.elements[i] = unboxedElement;
           }
+          // FIXME box elements if nodeListToType() returns a union
           from.type.setElementType(nodeListToType(from.elements));
         }
         return true;
@@ -1920,17 +1981,18 @@ function inferTypesOfEmptyListAndMapLiterals(from: AstNode, to: Type): boolean {
       if (toType.kind == "map") {
         // If the from list literal is not nested and empty, it has type
         // UnknownType. Assign the to type.
-        if (from.type.kind == "map" && from.type.valueType.signature == UnknownType.signature) {
+        if (from.type.kind == "map" && from.type.valueType == UnknownType) {
           from.type = to;
         } else {
           // Otherwise, the from map literal has a nested value with an
           // unknown type. Recursively check and resolve the unknown types
           // of the values.
-          for (const value of from.values) {
-            if (!inferTypesOfEmptyListAndMapLiterals(value, toType.valueType)) return false;
+          for (let i = 0; i < from.values.length; i++) {
+            const unboxedValue = unbox(from.values[i]);
+            if (!inferTypesOfEmptyListAndMapLiterals(unboxedValue, toType.valueType)) return false;
+            from.values[i] = unboxedValue;
           }
-
-          // Update the map literal's type.
+          // FIXME box elements if nodeListToType() returns a union
           from.type.setValueType(nodeListToType(from.values));
         }
         return true;
@@ -2003,7 +2065,7 @@ function inferTypesOfEmptyListAndMapLiterals(from: AstNode, to: Type): boolean {
  * Expands types and boxes values in list, map, and record literals to unions if the
  * `to` type is a union. Needed to ensure the memory layouts of
  * all involved types match. If it is decided that a value needs
- * to be boxed, its corresponding abstract syntax tree node is wrapped in a {@link UnionExpansionNode}.
+ * to be boxed, its corresponding abstract syntax tree node is wrapped in a {@link UnionBoxingNode}.
  *
  * The function returns the (potentially boxed) AST node for further processing.
  *
@@ -2011,8 +2073,11 @@ function inferTypesOfEmptyListAndMapLiterals(from: AstNode, to: Type): boolean {
  */
 function expandAndBoxLiteralValueTypesToUnions(from: ExpressionNode, to: Type): ExpressionNode {
   const toType = rawType(to);
+  const originalFrom = from;
 
   if (hasUnion(to)) {
+    from = unbox(from);
+
     // If from is a primitive type, "box" it.
     if (
       typeIsAssignableTo(from.type, toType) &&
@@ -2020,7 +2085,7 @@ function expandAndBoxLiteralValueTypesToUnions(from: ExpressionNode, to: Type): 
       from.type.kind == "primitive" &&
       (from.kind == "string literal" || from.kind == "boolean literal" || from.kind == "number literal" || from.kind == "nothing literal")
     ) {
-      return new UnionExpansionNode(from, to);
+      return new UnionBoxingNode(from, to);
     }
 
     // If from is a list literal and to is a list type expand
@@ -2032,7 +2097,7 @@ function expandAndBoxLiteralValueTypesToUnions(from: ExpressionNode, to: Type): 
       if (toElementType.kind == "union") {
         if (typeIsAssignableTo(from.type.elementType, toElementType)) {
           for (let i = 0; i < from.elements.length; i++) {
-            from.elements[i] = new UnionExpansionNode(from.elements[i], toType.elementType);
+            from.elements[i] = new UnionBoxingNode(from.elements[i], toType.elementType);
           }
           from.type.setElementType(toType.elementType);
         } else {
@@ -2060,6 +2125,9 @@ function expandAndBoxLiteralValueTypesToUnions(from: ExpressionNode, to: Type): 
               element.type = oldType.copy();
             }
             element.type = oldType;
+
+            candidates = unique(candidates);
+
             if (candidates.length == 1) {
               // expand the list, maps, or record internal types to unions if necessary
               from.elements[i] = isAssignableTo(element, candidates[0]).from;
@@ -2083,19 +2151,16 @@ function expandAndBoxLiteralValueTypesToUnions(from: ExpressionNode, to: Type): 
             // we expand them to the full union type and set the
             // element type of from accordingly.
             for (let i = 0; i < from.elements.length; i++) {
-              from.elements[i] = new UnionExpansionNode(from.elements[i], toType.elementType);
+              from.elements[i] = new UnionBoxingNode(from.elements[i], toType.elementType);
             }
             from.type.setElementType(toType.elementType);
           } else {
             // Othwerise, this is only a partial match, which will
             // trigger an error in the remainder of the type checking
             // of isAssignableTo(). We do a best effort union.
-            let newElementType = new UnionType([]);
-            for (const element of from.elements) {
-              newElementType = unify(element.type, newElementType);
-            }
+            let newElementType = new UnionType(unique(from.elements.map((el) => el.type)));
             for (let i = 0; i < from.elements.length; i++) {
-              from.elements[i] = new UnionExpansionNode(from.elements[i], newElementType);
+              from.elements[i] = new UnionBoxingNode(from.elements[i], newElementType);
             }
             from.type.setElementType(newElementType);
           }
@@ -2110,6 +2175,7 @@ function expandAndBoxLiteralValueTypesToUnions(from: ExpressionNode, to: Type): 
           for (let i = 0; i < from.elements.length; i++) {
             from.elements[i] = expandAndBoxLiteralValueTypesToUnions(from.elements[i], toType.elementType);
           }
+          // FIXME box elements if nodeListToType() returns a union
           from.type.setElementType(nodeListToType(from.elements));
         }
       }
@@ -2125,7 +2191,7 @@ function expandAndBoxLiteralValueTypesToUnions(from: ExpressionNode, to: Type): 
         // with the union.
         if (typeIsAssignableTo(from.type.valueType, toValueType)) {
           for (let i = 0; i < from.values.length; i++) {
-            from.values[i] = new UnionExpansionNode(from.values[i], toType.valueType);
+            from.values[i] = new UnionBoxingNode(from.values[i], toType.valueType);
           }
           from.type.setValueType(toType.valueType);
         } else {
@@ -2153,6 +2219,7 @@ function expandAndBoxLiteralValueTypesToUnions(from: ExpressionNode, to: Type): 
               element.type = oldType.copy();
             }
             element.type = oldType;
+            candidates = unique(candidates);
             if (candidates.length == 1) {
               // expand the list, maps, or record internal types to unions if necessary
               from.values[i] = isAssignableTo(element, candidates[0]).from;
@@ -2176,19 +2243,16 @@ function expandAndBoxLiteralValueTypesToUnions(from: ExpressionNode, to: Type): 
             // we expand them to the full union type and set the
             // values type of from accordingly.
             for (let i = 0; i < from.values.length; i++) {
-              from.values[i] = new UnionExpansionNode(from.values[i], toType.valueType);
+              from.values[i] = new UnionBoxingNode(from.values[i], toType.valueType);
             }
             from.type.setValueType(toType.valueType);
           } else {
             // Othwerise, this is only a partial match, which will
             // trigger an error in the remainder of the type checking
             // of isAssignableTo(). We do a best effort union.
-            let newElementType = new UnionType([]);
-            for (const element of from.values) {
-              newElementType = unify(element.type, newElementType);
-            }
+            let newElementType = new UnionType(unique(from.values.map((value) => value.type)));
             for (let i = 0; i < from.values.length; i++) {
-              from.values[i] = new UnionExpansionNode(from.values[i], newElementType);
+              from.values[i] = new UnionBoxingNode(from.values[i], newElementType);
             }
             from.type.setValueType(newElementType);
           }
@@ -2203,6 +2267,7 @@ function expandAndBoxLiteralValueTypesToUnions(from: ExpressionNode, to: Type): 
           for (let i = 0; i < from.values.length; i++) {
             from.values[i] = expandAndBoxLiteralValueTypesToUnions(from.values[i], toType.valueType);
           }
+          // FIXME box elements if nodeListToType() returns a union
           from.type.setValueType(nodeListToType(from.values));
         }
       }
@@ -2259,10 +2324,11 @@ function expandAndBoxLiteralValueTypesToUnions(from: ExpressionNode, to: Type): 
         from.type = oldType.copy();
       }
       from.type = oldType;
+      candidates = unique(candidates);
       if (candidates.length == 1) {
         // expand the list, maps, or record internal types to unions if necessary
         const assignable = isAssignableTo(from, candidates[0]);
-        from = new UnionExpansionNode(assignable.from, to);
+        from = new UnionBoxingNode(assignable.from, to);
       } else {
         if (candidates.length > 1) {
           throw new LittleFootError(
@@ -2272,9 +2338,10 @@ function expandAndBoxLiteralValueTypesToUnions(from: ExpressionNode, to: Type): 
           );
         }
       }
+      return from;
     }
   }
-  return from;
+  return originalFrom;
 }
 
 const numericTypes = new Set([Int8Type, Int16Type, Int32Type, Float32Type, Float64Type]);
@@ -3004,6 +3071,19 @@ function instantiateGenericTypeWithBindings(
   }
 }
 
+function unique(types: Type[]) {
+  if (types.length == 0) return [];
+  const seenSignatures = new Set<string>();
+  const unionTypes: Type[] = [];
+  for (const type of types) {
+    if (!seenSignatures.has(type.signature)) {
+      seenSignatures.add(type.signature);
+      unionTypes.push(type);
+    }
+  }
+  return unionTypes;
+}
+
 function unify(a: Type, union: UnionType) {
   const seenSignatures = new Set<string>();
   const unionTypes: Type[] = [];
@@ -3031,7 +3111,7 @@ function unify(a: Type, union: UnionType) {
 
 function nodeListToType(nodes: AstNode[]) {
   const seenSignatures = new Set<string>();
-  const elementTypes: Type[] = [];
+  let elementTypes: Type[] = [];
   for (const node of nodes) {
     if (!seenSignatures.has(node.type.signature)) {
       seenSignatures.add(node.type.signature);
@@ -3041,6 +3121,7 @@ function nodeListToType(nodes: AstNode[]) {
   if (elementTypes.length == 0) {
     return UnknownType;
   } else {
+    elementTypes = unique(elementTypes);
     return elementTypes.length == 1 ? elementTypes[0] : new UnionType(elementTypes);
   }
 }

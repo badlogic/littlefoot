@@ -417,12 +417,12 @@ export class NumericWideningNode extends BaseAstNode {
 }
 
 export class UnionExpansionNode extends BaseAstNode {
-  public readonly kind: "union expansion" = "union expansion";
-  constructor(public readonly expression: AstNode, unionType: Type) {
+  public readonly kind: "union boxing" = "union boxing";
+  constructor(public readonly expression: ExpressionNode, unionType: Type) {
     super(expression.location);
     this.type = unionType;
     if (rawType(unionType).kind != "union") {
-      throw new LittleFootError(expression.location, `Internal error: created union expansion node with non-union type ${unionType.signature}.`);
+      throw new LittleFootError(expression.location, `Internal error: created union boxing node with non-union type ${unionType.signature}.`);
     }
   }
 }
@@ -614,10 +614,17 @@ export function traverseAst(node: AstNode, parent: AstNode | null, callback: (no
     case "numeric widening":
       traverseAst(node.expression, node, callback);
       break;
-    case "union expansion":
+    case "union boxing":
       traverseAst(node.expression, node, callback);
       break;
     default:
       assertNever(node);
   }
+}
+
+export function unbox(node: ExpressionNode): ExpressionNode {
+  while (node.kind == "union boxing") {
+    node = node.expression;
+  }
+  return node;
 }

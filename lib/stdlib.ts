@@ -1,4 +1,5 @@
 export let standardLibSource = `
+# FIXME add more stuff!
 # boolean operators
 export external operator or(left: boolean, right: boolean): boolean;
 export external operator and(left: boolean, right: boolean): boolean;
