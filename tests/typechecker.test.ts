@@ -549,6 +549,9 @@ describe("Typechecker tests", () => {
     var left = branch(0, 0)
     var root = branch(left, left)
 
+    func print[T](node: node[T]): nothing
+    end
+
     func traverse[T](node: node[T], level: number): nothing
       for i from 0 to level do print("  ") end
       if node is leaf[T] then

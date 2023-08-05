@@ -1,7 +1,7 @@
 import { LittleFootError } from "./error";
 import { SourceLocation } from "./source";
 import { BoolToken, IdentifierToken, NothingToken, NumberToken, OperatorToken, StringToken, Token } from "./tokenizer";
-import { Type, UnionType, UnknownType, rawType } from "./types";
+import { AnyType, Type, UnionType, UnknownType, isGeneric, rawType } from "./types";
 
 export type AstNode = ImportNode | ImportedNameNode | InternalNode | TopLevelNode;
 
@@ -443,7 +443,7 @@ export class UnionBoxingNode extends BaseAstNode {
   constructor(public readonly expression: ExpressionNode, unionType: Type) {
     super(expression.location);
     this._type = unionType;
-    if (rawType(unionType).kind != "union") {
+    if (rawType(unionType).kind != "union" && rawType(expression.type) != AnyType) {
       throw new LittleFootError(expression.location, `Internal error: created union boxing node with non-union type ${unionType.signature}.`);
     }
   }
@@ -454,7 +454,7 @@ export class UnionUnboxingNode extends BaseAstNode {
   constructor(public readonly expression: ExpressionNode, unboxedType: Type) {
     super(expression.location);
     this._type = unboxedType;
-    if (rawType(expression.type).kind != "union") {
+    if (rawType(expression.type).kind != "union" && rawType(expression.type) != AnyType) {
       throw new LittleFootError(
         expression.location,
         `Internal error: created union unboxing node with non-union expression ${expression.type.signature}.`
