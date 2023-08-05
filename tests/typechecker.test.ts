@@ -4,7 +4,7 @@ import { testCompile } from "./utils";
 
 describe("Typechecker tests", () => {
   it("Should handle is operator in ternary", () => {
-    testCompile(`
+    const { errors } = testCompile(`
     external func rollDice(damage: int32): int32;
 
     type Monster = <health: int32>
@@ -37,6 +37,7 @@ describe("Typechecker tests", () => {
     var monster = Monster(10)
     attack(weapon, monster, 1)
     `);
+    expect(errors.length).toBe(0);
   });
 
   it("Should coerce numeric types", () => {

@@ -9,7 +9,15 @@ export type TopLevelNode = FunctionNode | TypeNode | StatementNode;
 
 export type InternalNode = NameAndTypeNode | LoopVariable | TypeSpecifierNode;
 
-export type TypeSpecifierNode = TypeReferenceNode | ListTypeNode | MapTypeNode | FunctionTypeNode | RecordTypeNode | UnionTypeNode | MixinTypeNode;
+export type TypeSpecifierNode =
+  | TypeReferenceNode
+  | ListTypeNode
+  | MapTypeNode
+  | FunctionTypeNode
+  | RecordTypeNode
+  | UnionTypeNode
+  | MixinTypeNode
+  | FixedTypeSpecifierNode;
 
 export type StatementNode =
   | VariableNode
@@ -44,12 +52,22 @@ export type ExpressionNode =
   | MethodCallNode
   | IncompleteExpressionNode
   | NumericWideningNode
-  | UnionExpansionNode;
+  | UnionBoxingNode
+  | UnionUnboxingNode
+  | ExpressionPreambleNode;
 
 export abstract class BaseAstNode {
-  public type: Type = UnknownType;
+  protected _type: Type = UnknownType;
 
   constructor(public readonly location: SourceLocation) {}
+
+  set type(type: Type) {
+    this._type = type;
+  }
+
+  get type(): Type {
+    return this._type;
+  }
 }
 
 export class TypeReferenceNode extends BaseAstNode {
@@ -282,7 +300,11 @@ export class UnaryOperatorNode extends BaseAstNode {
 
 export class IsOperatorNode extends BaseAstNode {
   public readonly kind: "is operator" = "is operator";
-  constructor(public readonly leftExpression: ExpressionNode, public readonly typeNode: TypeSpecifierNode) {
+  constructor(
+    public readonly leftExpression: ExpressionNode,
+    public readonly variableName: IdentifierToken | null,
+    public readonly typeNode: TypeSpecifierNode
+  ) {
     super(SourceLocation.from(leftExpression.location, typeNode.location));
   }
 }
@@ -412,18 +434,48 @@ export class NumericWideningNode extends BaseAstNode {
   public readonly kind: "numeric widening" = "numeric widening";
   constructor(public readonly expression: AstNode, narrowToType: Type) {
     super(expression.location);
-    this.type = narrowToType;
+    this._type = narrowToType;
   }
 }
 
-export class UnionExpansionNode extends BaseAstNode {
+export class UnionBoxingNode extends BaseAstNode {
   public readonly kind: "union boxing" = "union boxing";
   constructor(public readonly expression: ExpressionNode, unionType: Type) {
     super(expression.location);
-    this.type = unionType;
+    this._type = unionType;
     if (rawType(unionType).kind != "union") {
       throw new LittleFootError(expression.location, `Internal error: created union boxing node with non-union type ${unionType.signature}.`);
     }
+  }
+}
+
+export class UnionUnboxingNode extends BaseAstNode {
+  public readonly kind: "union unboxing" = "union unboxing";
+  constructor(public readonly expression: ExpressionNode, unboxedType: Type) {
+    super(expression.location);
+    this._type = unboxedType;
+    if (rawType(expression.type).kind != "union") {
+      throw new LittleFootError(
+        expression.location,
+        `Internal error: created union unboxing node with non-union expression ${expression.type.signature}.`
+      );
+    }
+  }
+}
+
+export class ExpressionPreambleNode extends BaseAstNode {
+  public readonly kind: "expression preamble" = "expression preamble";
+  constructor(public readonly preamble: StatementNode[], public readonly expression: ExpressionNode) {
+    super(expression.location);
+    this._type = expression.type;
+  }
+}
+
+export class FixedTypeSpecifierNode extends BaseAstNode {
+  public readonly kind: "fixed type specifier" = "fixed type specifier";
+  constructor(public readonly location: SourceLocation, fixedType: Type) {
+    super(location);
+    this._type = fixedType;
   }
 }
 
@@ -616,6 +668,17 @@ export function traverseAst(node: AstNode, parent: AstNode | null, callback: (no
       break;
     case "union boxing":
       traverseAst(node.expression, node, callback);
+      break;
+    case "union unboxing":
+      traverseAst(node.expression, node, callback);
+      break;
+    case "expression preamble":
+      for (const statement of node.preamble) {
+        traverseAst(statement, node, callback);
+      }
+      traverseAst(node.expression, node, callback);
+      break;
+    case "fixed type specifier":
       break;
     default:
       assertNever(node);

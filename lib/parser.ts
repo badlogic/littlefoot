@@ -492,8 +492,13 @@ function parseBinaryOperator(stream: TokenStream, level: number, context: Expres
   while (stream.hasMore() && stream.matchValues(operators)) {
     const operator = stream.next();
     if (operator.value == "is") {
+      var variableName: IdentifierToken | null = null;
+      if (stream.matchType(IdentifierToken) && stream.lookAheadValue(1, ":")) {
+        variableName = stream.expectType(IdentifierToken);
+        stream.expectValue(":");
+      }
       const type = parseTypeSpecifier(stream);
-      leftExpression = new IsOperatorNode(leftExpression, type);
+      leftExpression = new IsOperatorNode(leftExpression, variableName, type);
     } else if (operator.value == "as") {
       const type = parseTypeSpecifier(stream);
       leftExpression = new AsOperatorNode(leftExpression, type);

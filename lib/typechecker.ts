@@ -1,5 +1,5 @@
 // prettier-ignore
-import { AstNode, BaseAstNode, DoNode, ExpressionNode, ForEachNode, ForNode, FunctionLiteralNode, FunctionNode, ImportNode, ImportedNameNode, IsOperatorNode, LoopVariable, NameAndTypeNode, NumericWideningNode, ReturnNode, StatementNode, TypeNode, TypeReferenceNode, TypeSpecifierNode, UnionExpansionNode as UnionBoxingNode, VariableAccessNode, VariableNode, WhileNode, traverseAst, unbox } from "./ast";
+import { AstNode, BaseAstNode, DoNode, ExpressionNode, ExpressionPreambleNode, FixedTypeSpecifierNode, ForEachNode, ForNode, FunctionLiteralNode, FunctionNode, ImportNode, ImportedNameNode, IsOperatorNode, LoopVariable as LoopVariableNode, NameAndTypeNode, NumericWideningNode, ReturnNode, StatementNode, TypeNode, TypeReferenceNode, TypeSpecifierNode, UnionBoxingNode, UnionUnboxingNode, VariableAccessNode, VariableNode, WhileNode, traverseAst, unbox } from "./ast";
 import { CompilerContext, Module, compileModule } from "./compiler";
 import { LittleFootError, indent } from "./error";
 import { SourceLocation } from "./source";
@@ -11,7 +11,7 @@ function assertNever(x: never) {
   throw new Error("Unexpected object: " + x);
 }
 
-export type Symbol = VariableNode | NameAndTypeNode | LoopVariable;
+export type Symbol = VariableNode | NameAndTypeNode | LoopVariableNode;
 
 export const overloadableBinaryOperators = ["or", "and", "xor", "<", "<=", ">", ">=", "+", "-", "/", "*", "%", "[]"];
 
@@ -768,42 +768,23 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
         throw new LittleFootError(node.condition.location, `'if' condition must be a boolean but has type '${node.condition.type.signature}'.`);
       }
 
-      const isOperators = narrowTypesForIsExpression(node.condition, node.falseBlock.length > 0, context);
+      const isOperators = gatherIsOperators(node.condition, node.falseBlock.length > 0, context);
 
-      try {
-        // FIXME we need to unbox the value from the union
-        // Narrow variables affected by is operator
-        for (const operator of isOperators) {
-          operator.variable!.type = operator.isNegated ? operator.negatedType : operator.narrowedType;
-        }
+      context.withScope(() => {
+        const preamble = applyIsOperators(isOperators, true, context);
+        if (!context.isInGenericFunctionOrTypeDeclaration()) node.trueBlock.unshift(...preamble);
+        checkBlock(node.trueBlock, context);
+      });
 
-        context.withScope(() => {
-          checkBlock(node.trueBlock, context);
-        });
+      context.withScope(() => {
+        checkBlock(node.elseIfs, context);
+      });
 
-        // Reset variables affected by is operator
-        for (const operator of isOperators) {
-          operator.variable!.type = operator.originalType;
-        }
-
-        context.withScope(() => {
-          checkBlock(node.elseIfs, context);
-        });
-
-        // Narrow variables affected by is operator, negated
-        for (const operator of isOperators) {
-          operator.variable!.type = operator.isNegated ? operator.narrowedType! : operator.negatedType!;
-        }
-
-        context.withScope(() => {
-          checkBlock(node.falseBlock, context);
-        });
-      } finally {
-        // Reset variables affected by is operator
-        for (const operator of isOperators) {
-          operator.variable!.type = operator.originalType;
-        }
-      }
+      context.withScope(() => {
+        const preamble = applyIsOperators(isOperators, false, context);
+        if (!context.isInGenericFunctionOrTypeDeclaration()) node.falseBlock.unshift(...preamble);
+        checkBlock(node.falseBlock, context);
+      });
 
       node.type = NothingType;
       break;
@@ -938,42 +919,31 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
       break;
     case "ternary operator":
       checkNodeTypes(node.condition, context);
-
-      const isOperators = narrowTypesForIsExpression(node.condition, true, context);
-      try {
-        // FIXME we need to unbox the value from the union
-        // Narrow variables affected by is operator
-        for (const operator of isOperators) {
-          operator.variable!.type = operator.isNegated ? operator.negatedType : operator.narrowedType;
-        }
-
-        checkNodeTypes(node.trueExpression, context);
-
-        // Narrow variables affected by is operator, negated
-        for (const operator of isOperators) {
-          operator.variable!.type = operator.isNegated ? operator.narrowedType : operator.negatedType;
-        }
-
-        checkNodeTypes(node.falseExpression, context);
-        if (node.condition.type != BooleanType) {
-          throw new LittleFootError(
-            node.condition.location,
-            `Ternary operator ? condition must be a boolean but has type '${node.condition.type.signature}'.`
-          );
-        }
-      } finally {
-        // Reset variables affected by is operator
-        for (const operator of isOperators) {
-          operator.variable!.type = operator.originalType;
-        }
+      if (node.condition.type != BooleanType) {
+        throw new LittleFootError(
+          node.condition.location,
+          `Ternary operator ? condition must be a boolean but has type '${node.condition.type.signature}'.`
+        );
       }
+
+      const isOperators = gatherIsOperators(node.condition, true, context);
+      context.withScope(() => {
+        const preamble = applyIsOperators(isOperators, true, context);
+        if (!context.isInGenericFunctionOrTypeDeclaration()) node.trueExpression = new ExpressionPreambleNode(preamble, node.trueExpression);
+        checkNodeTypes(node.trueExpression, context);
+      });
+      context.withScope(() => {
+        const preamble = applyIsOperators(isOperators, false, context);
+        if (!context.isInGenericFunctionOrTypeDeclaration()) node.falseExpression = new ExpressionPreambleNode(preamble, node.falseExpression);
+        checkNodeTypes(node.falseExpression, context);
+      });
 
       if (isEqual(node.trueExpression.type, node.falseExpression.type)) {
         node.type = node.trueExpression.type;
       } else {
-        // FIXME this needs a UnionExpansionNode somehow, or the code-gen
-        // special cases this.
         node.type = new UnionType([node.trueExpression.type, node.falseExpression.type]);
+        node.trueExpression = new UnionBoxingNode(node.trueExpression, node.type);
+        node.falseExpression = new UnionBoxingNode(node.falseExpression, node.type);
       }
       break;
     case "binary operator":
@@ -1154,9 +1124,19 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
       break;
     case "is operator":
       // Type checking of the is operator including narrowing is
-      // done in the "if" case above.
+      // done in the "ternary operator", "if", and "match" cases above.
       checkNodeTypes(node.leftExpression, context);
       checkNodeTypes(node.typeNode, context);
+      if (node.variableName) {
+        const other = context.getFromScope(node.variableName.value);
+        if (other) {
+          throw new LittleFootError(
+            node.variableName.location,
+            `Variable with name ${node.variableName.value} already defined in ${other.location.toString()}.`
+          );
+        }
+      }
+
       // FIXME would an uninstantiated generic type be useful for is?
       if (node.typeNode.type.kind == "named type" && !node.typeNode.type.isInstantiated) {
         throw new LittleFootError(node.typeNode.location, `Must specify generic type arguments when using a generic type with 'is' operator.`);
@@ -1423,10 +1403,27 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
       node.type = node.expression.type;
       throw node.error;
     case "numeric widening":
+      // The type of this node is static.
       checkNodeTypes(node.expression, context);
       break;
     case "union boxing":
+      // The type of this node is static.
       checkNodeTypes(node.expression, context);
+      break;
+    case "union unboxing":
+      // The type of this node is static.
+      checkNodeTypes(node.expression, context);
+      break;
+    case "expression preamble":
+      for (const preamble of node.preamble) {
+        checkNodeTypes(preamble, context);
+      }
+      checkNodeTypes(node.expression, context);
+      node.type = node.expression.type;
+      break;
+    case "fixed type specifier":
+      // FIXME does this work for generics?!
+      // Type is fixed, nothing to do here.
       break;
     default:
       assertNever(node);
@@ -1437,15 +1434,14 @@ type IsOperatorContext = {
   isNegated: boolean;
   isOperatorNode: IsOperatorNode;
   originalType: Type;
-  narrowedType: Type;
-  negatedType: Type;
-  variable: Symbol | undefined;
+  trueType: Type;
+  falseType: Type;
+  variableName: IdentifierToken;
 };
 
-function narrowTypesForIsExpression(expression: ExpressionNode, hasFalseBranch: boolean, context: TypeCheckerContext): IsOperatorContext[] {
+function gatherIsOperators(expression: ExpressionNode, hasFalseBranch: boolean, context: TypeCheckerContext): IsOperatorContext[] {
   // Gather the "is" operators and check if they are negated.
   const isOperators: IsOperatorContext[] = [];
-
   let negated = false;
   traverseAst(expression, null, (node) => {
     if (node.kind == "unary operator" && node.operator.value == "not") negated = !negated;
@@ -1455,52 +1451,99 @@ function narrowTypesForIsExpression(expression: ExpressionNode, hasFalseBranch: 
         isNegated: negated,
         isOperatorNode: node,
         originalType,
-        narrowedType: originalType,
-        negatedType: originalType,
-        variable: undefined,
+        trueType: originalType,
+        falseType: originalType,
+        variableName: undefined as any,
       });
     }
     return true;
   });
 
+  // Create PatternMatchedVariable instances for each operator and figure out their true and false branch types.
   for (const operator of isOperators) {
-    if (operator.isOperatorNode.leftExpression.kind != "variable access") {
-      throw new LittleFootError(operator.isOperatorNode.leftExpression.location, "Must be a variable.");
+    const isOperatorNode = operator.isOperatorNode;
+
+    // Create a PatternMatchedVariable to which we assign the value of the left expression. It will
+    // be available in the true branch scope with the matched type, and in the false branch scope
+    // with the original type minus the matched type.
+    if (!isOperatorNode.variableName && isOperatorNode.leftExpression.kind == "variable access") {
+      // If no variable name was given, and the left expression of the operator is a variable access
+      // node, we create a variable of the same name which shadows the original
+      const variableName = (operator.isOperatorNode.leftExpression as VariableAccessNode).name.value;
+      const originalVariable = context.getFromScope(variableName);
+      if (!originalVariable) {
+        throw new LittleFootError(operator.isOperatorNode.leftExpression.location, `Can not find variable '${variableName}'.`);
+      }
+      operator.variableName = originalVariable.name;
+    } else {
+      if (!isOperatorNode.variableName) {
+        throw new LittleFootError(operator.isOperatorNode.location, `Internal error: expected pattern matched variable name, but got nothing.`);
+      }
+      operator.variableName = isOperatorNode.variableName;
     }
-    const variableName = (operator.isOperatorNode.leftExpression as VariableAccessNode).name.value;
-    const variable = (operator.variable = context.getFromScope(variableName));
-    if (!variable) {
-      throw new LittleFootError(operator.isOperatorNode.leftExpression.location, `Can not find variable '${variableName}'.`);
-    }
-    const variableType = rawType((operator.originalType = variable.type));
-    // If the variable is generic, we assume it can be a union
-    if (!(variableType.kind == "union" || isGeneric(variableType))) {
-      throw new LittleFootError(operator.isOperatorNode.leftExpression.location, "Variable type must be a union.");
-    }
-    operator.narrowedType = operator.isOperatorNode.typeNode.type;
-    if (!typeIsAssignableTo(operator.isOperatorNode.typeNode.type, variable.type)) {
+
+    const leftExpression = isOperatorNode.leftExpression;
+    const leftExpressionType = rawType(leftExpression.type);
+    // The type must be a union or generic (which is assumed to be a union)
+    if (!(leftExpressionType.kind == "union" || isGeneric(leftExpressionType))) {
       throw new LittleFootError(
-        variable.location,
-        `Variable '${variable.name.value}' has type '${variable.type.signature}' and can never be type '${operator.narrowedType.signature}'.`
+        operator.isOperatorNode.leftExpression.location,
+        `Left expression in 'is' operator must be a union, but got type '${leftExpression.type.signature}'`
       );
     }
 
-    if (variableType.kind == "union") {
-      // If the variable is generic, we just use it for the negated type set as well, as it's an any type.
-      const newTypes = isGeneric(variableType)
+    // The true branch type is the type of the type specifier
+    operator.trueType = isOperatorNode.typeNode.type;
+    if (!typeIsAssignableTo(isOperatorNode.typeNode.type, leftExpression.type)) {
+      throw new LittleFootError(
+        leftExpression.location,
+        `Left expression of 'is' operator has type '${leftExpression.type.signature}' and can never be type '${operator.trueType.signature}'.`
+      );
+    }
+
+    // The false branch type is the the original type minus the type in the type specifier
+    if (leftExpressionType.kind == "union") {
+      // If the variable is generic, we use its type for the negated type set as well, as it's an any type.
+      const falseBranchTypes = isGeneric(leftExpression.type)
         ? [operator.originalType]
-        : variableType.types.filter((type) => !typeIsAssignableTo(type, operator.narrowedType!));
-      if (newTypes.length == 0 && (operator.isNegated || hasFalseBranch)) {
+        : leftExpressionType.types.filter((type) => !typeIsAssignableTo(type, operator.trueType!));
+      if (falseBranchTypes.length == 0 && (operator.isNegated || hasFalseBranch)) {
         throw new LittleFootError(
           operator.isOperatorNode.location,
-          `Negation of 'is' operator results in empty type for '${variable.name.value}' in the ${operator.isNegated ? "true" : "false"} branch.`
-        ); // TODO better message
+          `Negation of 'is' operator results in empty type for left expression in the ${operator.isNegated ? "true" : "false"} branch.`
+        );
       }
-      operator.negatedType = newTypes.length == 1 ? newTypes[0] : new UnionType(newTypes);
+      operator.falseType = falseBranchTypes.length == 1 ? falseBranchTypes[0] : new UnionType(falseBranchTypes);
+    }
+
+    // If the operator is negated, swap the false and true branch types
+    if (operator.isNegated) {
+      const tmp = operator.trueType;
+      operator.trueType = operator.falseType;
+      operator.falseType = tmp;
     }
   }
 
   return isOperators;
+}
+
+function applyIsOperators(isOperators: IsOperatorContext[], isTrueBranch: boolean, context: TypeCheckerContext): StatementNode[] {
+  const variableInitializers: StatementNode[] = [];
+  for (const isOperator of isOperators) {
+    const type = isTrueBranch ? isOperator.trueType : isOperator.falseType;
+    const typeSpecifierNode = new FixedTypeSpecifierNode(isOperator.isOperatorNode.location, type);
+    const variableNode = new VariableNode(
+      isOperator.variableName,
+      isOperator.variableName,
+      typeSpecifierNode,
+      new UnionUnboxingNode(isOperator.isOperatorNode.leftExpression, type),
+      false,
+      false,
+      false
+    );
+    variableInitializers.push(variableNode);
+  }
+  return variableInitializers;
 }
 
 function reportCandidatesFunctions(functions: NamedFunctionType[] | undefined, showArgCount = true) {
@@ -1947,7 +1990,7 @@ function inferTypesOfEmptyListAndMapLiterals(from: ExpressionNode, to: Type): bo
             from.elements[i] = unboxedElement;
           }
           // FIXME box elements if nodeListToType() returns a union
-          from.type.setElementType(nodeListToType(from.elements));
+          from.type.setElementType(nodeTypesToUnionType(from.elements));
         }
         return true;
       }
@@ -1993,7 +2036,7 @@ function inferTypesOfEmptyListAndMapLiterals(from: ExpressionNode, to: Type): bo
             from.values[i] = unboxedValue;
           }
           // FIXME box elements if nodeListToType() returns a union
-          from.type.setValueType(nodeListToType(from.values));
+          from.type.setValueType(nodeTypesToUnionType(from.values));
         }
         return true;
       }
@@ -2176,7 +2219,7 @@ function expandAndBoxLiteralValueTypesToUnions(from: ExpressionNode, to: Type): 
             from.elements[i] = expandAndBoxLiteralValueTypesToUnions(from.elements[i], toType.elementType);
           }
           // FIXME box elements if nodeListToType() returns a union
-          from.type.setElementType(nodeListToType(from.elements));
+          from.type.setElementType(nodeTypesToUnionType(from.elements));
         }
       }
       return from;
@@ -2268,7 +2311,7 @@ function expandAndBoxLiteralValueTypesToUnions(from: ExpressionNode, to: Type): 
             from.values[i] = expandAndBoxLiteralValueTypesToUnions(from.values[i], toType.valueType);
           }
           // FIXME box elements if nodeListToType() returns a union
-          from.type.setValueType(nodeListToType(from.values));
+          from.type.setValueType(nodeTypesToUnionType(from.values));
         }
       }
       return from;
@@ -2488,7 +2531,9 @@ function coerceNumericTypes(from: ExpressionNode, to: Type): ExpressionNode {
     }
     if (candidates.length == 1) {
       // Create a widening node
-      from = new NumericWideningNode(from, candidates[0]);
+      if (from.type != candidates[0]) {
+        from = new NumericWideningNode(from, candidates[0]);
+      }
     } else {
       if (candidates.length > 1) {
         throw new LittleFootError(
@@ -3109,7 +3154,7 @@ function unify(a: Type, union: UnionType) {
   return new UnionType(unionTypes.length == 0 ? [UnknownType] : unionTypes);
 }
 
-function nodeListToType(nodes: AstNode[]) {
+function nodeTypesToUnionType(nodes: AstNode[]) {
   const seenSignatures = new Set<string>();
   let elementTypes: Type[] = [];
   for (const node of nodes) {
