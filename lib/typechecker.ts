@@ -5,7 +5,7 @@ import { LittleFootError, indent } from "./error";
 import { SourceLocation } from "./source";
 import { IdentifierToken } from "./tokenizer";
 // prettier-ignore
-import { AnyType, BooleanType, Float32Type, Float64Type, FunctionType, Int16Type, Int32Type, Int8Type, ListType, MapType, NameAndType, NamedFunctionType, NamedType, NothingType, NumberType, PrimitiveType, RecordType, ResolvingTypeMarker, StringType, Type, UnionType, UnknownType, hasEmptyListOrMap, hasUnion, isEqual, isGeneric, rawType, traverseType, isAssignableTo as typeIsAssignableTo } from "./types";
+import { AnyType, BooleanType, Float32Type, Float64Type, FunctionType, Int16Type, Int32Type, Int8Type, ListType, MapType, NameAndType, NamedFunctionType, NamedType, NothingType, NumberType, PrimitiveType, RecordType, ResolvingTypeMarker, StringType, Type, UnionType, UnknownType, hasEmptyListOrMap, hasUnion, isEqual, isGeneric, isRecursive, rawType, traverseType, isAssignableTo as typeIsAssignableTo } from "./types";
 
 function assertNever(x: never) {
   throw new Error("Unexpected object: " + x);
@@ -319,54 +319,7 @@ export function checkTypes(context: TypeCheckerContext) {
     }
 
     // Check if this is a recursive type.
-    let seenTypes: Type[] = [];
-    let typesToVisit: Type[] = [];
-    let isRecursive = false;
-    typesToVisit.push(type.type);
-    seenTypes.push(type);
-    while (typesToVisit.length > 0) {
-      const currType = typesToVisit.pop();
-      if (currType == null) break;
-      seenTypes.push(currType);
-
-      if (currType.kind == "named type") {
-        typesToVisit.push(currType.type);
-        if (currType == type) {
-          isRecursive = true;
-          errors.push(
-            new LittleFootError(
-              type.ast.name.location,
-              `Type '${type.name}' circularly references itself.`,
-              `Chain: ${seenTypes.map((t) => t.signature).join(" -> ")}`
-            )
-          );
-          break;
-        }
-      } else {
-        if (currType.kind == "union") {
-          for (const unionType of currType.types) {
-            if (unionType == type) {
-              isRecursive = true;
-              errors.push(
-                new LittleFootError(
-                  type.ast.name.location,
-                  `Type '${type.name}' circularly references itself.`,
-                  `Chain: ${seenTypes.map((t) => t.signature).join(" -> ")}`
-                )
-              );
-              break;
-            }
-            if (unionType.kind == "named type") {
-              typesToVisit.push(unionType);
-            }
-          }
-        } else {
-          break;
-        }
-      }
-    }
-
-    if (isRecursive) continue;
+    if (isRecursive(type, errors)) continue;
 
     let actualType = rawType(type);
     if (actualType.kind == "record") {
@@ -772,7 +725,7 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
 
       context.withScope(() => {
         const preamble = applyIsOperators(isOperators, true, context);
-        if (!context.isInGenericFunctionOrTypeDeclaration()) node.trueBlock.unshift(...preamble);
+        node.trueBlock.unshift(...preamble);
         checkBlock(node.trueBlock, context);
       });
 
@@ -782,7 +735,7 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
 
       context.withScope(() => {
         const preamble = applyIsOperators(isOperators, false, context);
-        if (!context.isInGenericFunctionOrTypeDeclaration()) node.falseBlock.unshift(...preamble);
+        node.falseBlock.unshift(...preamble);
         checkBlock(node.falseBlock, context);
       });
 
@@ -929,12 +882,12 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
       const isOperators = gatherIsOperators(node.condition, true, context);
       context.withScope(() => {
         const preamble = applyIsOperators(isOperators, true, context);
-        if (!context.isInGenericFunctionOrTypeDeclaration()) node.trueExpression = new ExpressionPreambleNode(preamble, node.trueExpression);
+        node.trueExpression = new ExpressionPreambleNode(preamble, node.trueExpression);
         checkNodeTypes(node.trueExpression, context);
       });
       context.withScope(() => {
         const preamble = applyIsOperators(isOperators, false, context);
-        if (!context.isInGenericFunctionOrTypeDeclaration()) node.falseExpression = new ExpressionPreambleNode(preamble, node.falseExpression);
+        node.falseExpression = new ExpressionPreambleNode(preamble, node.falseExpression);
         checkNodeTypes(node.falseExpression, context);
       });
 
@@ -1536,7 +1489,9 @@ function applyIsOperators(isOperators: IsOperatorContext[], isTrueBranch: boolea
       isOperator.variableName,
       isOperator.variableName,
       typeSpecifierNode,
-      new UnionUnboxingNode(isOperator.isOperatorNode.leftExpression, type),
+      context.isInGenericFunctionOrTypeDeclaration()
+        ? isOperator.isOperatorNode.leftExpression
+        : new UnionUnboxingNode(isOperator.isOperatorNode.leftExpression, type),
       false,
       false,
       false
@@ -3073,6 +3028,11 @@ function instantiateGenericTypeWithBindings(
   }
 
   if (genericBoundType.kind == "named type") {
+    const ast = genericBoundType.ast as TypeNode;
+    const astCopy = ast.copy();
+    astCopy.type = genericBoundType;
+    genericBoundType.ast = astCopy;
+
     if (context.module.types.has(genericBoundType.signature)) {
       return context.module.types.get(genericBoundType.signature) as NamedType;
     } else {
@@ -3086,19 +3046,8 @@ function instantiateGenericTypeWithBindings(
     }
   } else {
     // Copy the AST as well and set generic type bindings
-    // FIXME deep copy? All instantiations share the same AST which means
-    // the assigned node types are all over the place. Bad for code-gen.
     const ast = genericBoundType.ast as FunctionNode;
-    const astCopy = new FunctionNode(
-      ast.location,
-      ast.name,
-      ast.genericTypeNames,
-      ast.parameters,
-      ast.returnType,
-      ast.code,
-      ast.exported,
-      ast.external
-    );
+    const astCopy = ast.copy();
     astCopy.type = genericBoundType;
     genericBoundType.ast = astCopy;
 

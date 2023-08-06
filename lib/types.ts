@@ -825,3 +825,54 @@ export function hasUnion(type: Type) {
   });
   return found;
 }
+
+export function isRecursive(type: NamedType, errors: LittleFootError[]): boolean {
+  const startErrors = errors.length;
+  let seenTypes: Type[] = [];
+  let typesToVisit: Type[] = [];
+  let isRecursive = false;
+  typesToVisit.push(type.type);
+  seenTypes.push(type);
+  while (typesToVisit.length > 0) {
+    const currType = typesToVisit.pop();
+    if (currType == null) break;
+    seenTypes.push(currType);
+
+    if (currType.kind == "named type") {
+      typesToVisit.push(currType.type);
+      if (currType == type) {
+        isRecursive = true;
+        errors.push(
+          new LittleFootError(
+            type.ast.name.location,
+            `Type '${type.name}' circularly references itself.`,
+            `Chain: ${seenTypes.map((t) => t.signature).join(" -> ")}`
+          )
+        );
+        break;
+      }
+    } else {
+      if (currType.kind == "union") {
+        for (const unionType of currType.types) {
+          if (unionType == type) {
+            isRecursive = true;
+            errors.push(
+              new LittleFootError(
+                type.ast.name.location,
+                `Type '${type.name}' circularly references itself.`,
+                `Chain: ${seenTypes.map((t) => t.signature).join(" -> ")}`
+              )
+            );
+            break;
+          }
+          if (unionType.kind == "named type") {
+            typesToVisit.push(unionType);
+          }
+        }
+      } else {
+        break;
+      }
+    }
+  }
+  return startErrors != errors.length;
+}
