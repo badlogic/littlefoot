@@ -53,7 +53,12 @@ export class SymbolScopes {
         if (other.location.equals(node.location)) {
           return;
         }
-        throw new LittleFootError(node.name.location, `Duplicate variable ${name}, first defined in ${other.name.location.toString()}.`);
+        throw new LittleFootError(
+          node.name.location,
+          `Duplicate variable ${name}, first defined in ${other.name.location.toString()}.`,
+          undefined,
+          new LittleFootError(other.name.location, `Previous definition of ${name}.`)
+        );
       }
       if (allowShadow) break;
     }
@@ -97,6 +102,7 @@ export class GenericBindings {
       let scope = scopes[i];
       let other = scope.get(name);
       if (other) {
+        // FIXME report other location
         throw new LittleFootError(location, `Duplicate generic binding ${name}.`);
       }
       if (allowShadow) break;
@@ -569,12 +575,17 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
         context.withGenericBindings(() => {
           if (node.type.kind == "named type") {
             // Set up generic bindings for each generic type name with type AnyType.
-            const seenGenericTypeNames = new Set<string>();
+            const seenGenericTypeNames = new Map<string, IdentifierToken>();
             for (const genericTypeName of node.genericTypeNames) {
               if (seenGenericTypeNames.has(genericTypeName.value)) {
-                throw new LittleFootError(genericTypeName.location, `Duplicate generic type name '${genericTypeName.value}'.`);
+                throw new LittleFootError(
+                  genericTypeName.location,
+                  `Duplicate generic type name '${genericTypeName.value}'.`,
+                  undefined,
+                  new LittleFootError(seenGenericTypeNames.get(genericTypeName.value)!.location, "Previous definition.")
+                );
               }
-              seenGenericTypeNames.add(genericTypeName.value);
+              seenGenericTypeNames.set(genericTypeName.value, genericTypeName);
               context.addGenericBinding(genericTypeName.value, node.type.getGenericType(genericTypeName.value), genericTypeName.location);
             }
 
@@ -635,7 +646,9 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
           if (seenNames.has(importedName.name.value)) {
             throw new LittleFootError(
               importedName.location,
-              `Duplicate import ${importedName.name.value}, already specified previously in this import statement.`
+              `Duplicate import ${importedName.name.value}, already specified previously in this import statement.`,
+              undefined,
+              new LittleFootError(seenNames.get(importedName.name.value)!.location, "Previous definition.")
             );
           }
 
@@ -1413,6 +1426,7 @@ function gatherIsOperators(expression: ExpressionNode, hasFalseBranch: boolean, 
   });
 
   // Create PatternMatchedVariable instances for each operator and figure out their true and false branch types.
+  const shadowedVariableNames = new Map<string, IsOperatorContext>();
   for (const operator of isOperators) {
     const isOperatorNode = operator.isOperatorNode;
 
@@ -1422,12 +1436,13 @@ function gatherIsOperators(expression: ExpressionNode, hasFalseBranch: boolean, 
     if (!isOperatorNode.variableName && isOperatorNode.leftExpression.kind == "variable access") {
       // If no variable name was given, and the left expression of the operator is a variable access
       // node, we create a variable of the same name which shadows the original
-      const variableName = (operator.isOperatorNode.leftExpression as VariableAccessNode).name.value;
-      const originalVariable = context.getFromScope(variableName);
+      const variableName = (operator.isOperatorNode.leftExpression as VariableAccessNode).name;
+      const originalVariable = context.getFromScope(variableName.value);
       if (!originalVariable) {
-        throw new LittleFootError(operator.isOperatorNode.leftExpression.location, `Can not find variable '${variableName}'.`);
+        throw new LittleFootError(operator.isOperatorNode.leftExpression.location, `Can not find variable '${variableName.value}'.`);
       }
-      operator.variableName = originalVariable.name;
+      operator.variableName = variableName;
+      shadowedVariableNames.set(variableName.value, operator);
     } else {
       if (!isOperatorNode.variableName) {
         throw new LittleFootError(operator.isOperatorNode.location, `Internal error: expected pattern matched variable name, but got nothing.`);
@@ -1476,6 +1491,25 @@ function gatherIsOperators(expression: ExpressionNode, hasFalseBranch: boolean, 
       operator.falseType = tmp;
     }
   }
+
+  // Check if this variable was already accessed by an isOperator without a variable name. E.g.
+  //
+  // x is number or x is y: number.
+  //
+  // The first is operator will create a new variable in the true scope called x, then the
+  // second operator generates a variable with an initializer referring to x. However, that
+  // x is no longer the original union x, but the unboxed x from the first operator!
+  //
+  // We need to thus check if "shadowed" variables have been referenced a second time.
+  /*for (const operator of isOperators) {
+    if (seenVariableNames.has(variableName.value)) {
+      throw new LittleFootError(
+        variableName.location,
+        `Variable '${variableName.value}} has already been referenced by another 'is' operator in this expression.`
+      );
+    }
+    seenVariableNames.set(variableName.value, operator);
+  }*/
 
   return isOperators;
 }
@@ -1607,7 +1641,19 @@ function checkFunctionDeclarationNode(node: FunctionNode, context: TypeCheckerCo
         // function declaration and construct and assign the NamedFunctionType to it.
 
         // Generate dummy generic bindings.
-        node.genericTypeNames.forEach((typeName) => context.addGenericBinding(typeName.value, newGenericAnyType(typeName), typeName.location));
+        const seenGenericTypeNames = new Map<string, IdentifierToken>();
+        for (const genericTypeName of node.genericTypeNames) {
+          if (seenGenericTypeNames.has(genericTypeName.value)) {
+            throw new LittleFootError(
+              genericTypeName.location,
+              `Duplicate generic type name '${genericTypeName.value}'.`,
+              undefined,
+              new LittleFootError(seenGenericTypeNames.get(genericTypeName.value)!.location, "Previous definition.")
+            );
+          }
+          seenGenericTypeNames.set(genericTypeName.value, genericTypeName);
+          context.addGenericBinding(genericTypeName.value, newGenericAnyType(genericTypeName), genericTypeName.location);
+        }
 
         // Assign types to the function's parameters and return type
         for (const parameter of node.parameters) {
@@ -1616,6 +1662,7 @@ function checkFunctionDeclarationNode(node: FunctionNode, context: TypeCheckerCo
         }
         if (node.returnType) checkNodeTypes(node.returnType, context);
 
+        // FIXME report duplicate generic type names
         // Check if all generic types are being used by parameters and/or return type
         let genericTypes = new Set<string>(node.genericTypeNames.map((type) => type.value));
         for (const parameter of node.parameters) {

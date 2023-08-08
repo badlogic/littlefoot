@@ -5,6 +5,7 @@
   "main": "index.js",
   "scripts": {
     "prepare": "husky install",
+    "clean": "rimraf build site/build",
     "build": "npm run clean && npm run build:lib && npm run build:site",
     "build:lib": "npx esbuild --bundle lib/index.ts --sourcemap --outfile=build/iife/littlefoot.js --format=iife --global-name=littlefoot",
     "build:site": "./site/esbuild.mjs",
