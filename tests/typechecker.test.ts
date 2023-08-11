@@ -4,7 +4,6 @@ import { testCompile } from "./utils";
 
 describe("Typechecker tests", () => {
   it("Should error if a generic union type consists of the same type multiple times", () => {
-    // FIXME the resulting types for the function calls and arguments are completely wrong
     const { errors } = testCompile(`
     type bar[T] = T | number
 
@@ -129,10 +128,14 @@ describe("Typechecker tests", () => {
       print(byte)
     else
     end
+    var a = 0 as number | string
+    a is number or a is string ? true : false
     `);
-    expect(errors.length).toBe(1);
+    expect(errors.length).toBe(2);
     expect(errors[0].message).toBe("Variable 'n' can only be referenced by one 'is' operator in the same expression.");
     expect(errors[0].cause?.message).toBe("Previous 'is' operator with reference to variable 'n'.");
+    expect(errors[1].message).toBe("Variable 'a' can only be referenced by one 'is' operator in the same expression.");
+    expect(errors[1].cause?.message).toBe("Previous 'is' operator with reference to variable 'a'.");
   });
 
   it("Should handle is operator correctly.", () => {

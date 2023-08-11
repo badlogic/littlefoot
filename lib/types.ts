@@ -597,7 +597,8 @@ export function isEqual(from: Type, to: Type) {
   //
   // FIXME the current implementation assumes that all types
   // within a union are distinct. However, the following
-  // degenerate case can arise (e.g. when mixins are involved, or generics like T | number):
+  // degenerate case can arise (e.g. when mixins are involved, or generics like T | number like
+  // type bar[T] = T | number; var b: bar[number] = 0):
   //
   // type a = someType | someType | someType
   // type b = someType | anotherType | anotherType

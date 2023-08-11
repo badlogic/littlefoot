@@ -1793,7 +1793,6 @@ function checkOrInferFunctionReturnType(node: FunctionNode | FunctionLiteralNode
     }
     const returnTypes = returns.map((ret) => ret.type);
     if (returnTypes.length == 0) returnTypes.push(NothingType);
-    // FIXME need to union box the return values. What do we do with no-value-returns?
     const returnType = returnTypes.length == 1 ? returnTypes[0] : unify(returnTypes[0], new UnionType(returnTypes));
     if (returnTypes.length > 1) {
       for (const ret of returns) {
