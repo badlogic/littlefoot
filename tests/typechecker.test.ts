@@ -117,6 +117,20 @@ describe("Typechecker tests", () => {
     expect(errors.length).toBe(2);
   });
 
+  it("Should allow only one is operator per variable name", () => {
+    const { errors } = testCompile(`
+    var n: int16 | string | int8 = 0 as int16
+    if n is int16 or n is byte:int8 then
+      print(n)
+      print(byte)
+    else
+    end
+    `);
+    expect(errors.length).toBe(1);
+    expect(errors[0].message).toBe("Variable 'n' can only be referenced by one 'is' operator in the same expression.");
+    expect(errors[0].cause?.message).toBe("Previous 'is' operator with reference to variable 'n'.");
+  });
+
   it("Should handle is operator correctly.", () => {
     const { errors, modules } = testCompile(`
     type t = number | string | nothing
