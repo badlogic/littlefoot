@@ -3,6 +3,25 @@ import { ListType, MapType, NameAndType, NamedType, NothingType, NumberType, Rec
 import { testCompile } from "./utils";
 
 describe("Typechecker tests", () => {
+  it("Should error if a generic union type consists of the same type multiple times", () => {
+    const { errors } = testCompile(`
+    type bar[T] = T | number
+
+    func foo[T](b: bar[T]): nothing
+      if b is T then
+        print(b)
+      else
+        print(b)
+      end
+    end
+    foo(1)
+    foo("test")
+    # This calls foo[string]!
+    foo(1)
+    `);
+    expect(errors.length).toBe(1);
+  });
+
   it("Should handle is operator in ternary", () => {
     const { errors } = testCompile(`
     external func rollDice(damage: int32): int32;

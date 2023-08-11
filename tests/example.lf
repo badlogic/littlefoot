@@ -18,7 +18,7 @@ yet, because I'm too lazy to figure out the correct regex incantation 🤷"
 # You can select text in the source code file to see only the AST nodes
 # for the selection.
 
-# Apart from srings you can also have plain old numbers. You can specify
+# Apart from strings you can also have plain old numbers. You can specify
 # number values as integers, decimal, hex, and binary numbers. These
 # will be stored as 64-bit doubles.
 1; 2.234; 0xff; 0b10101;

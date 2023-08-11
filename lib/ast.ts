@@ -8,17 +8,9 @@ export type AstNode = ImportNode | ImportedNameNode | InternalNode | TopLevelNod
 
 export type TopLevelNode = FunctionNode | TypeNode | StatementNode;
 
-export type InternalNode = NameAndTypeNode | LoopVariable | TypeSpecifierNode;
+export type InternalNode = NameAndTypeNode | LoopVariable | NoopNode | TypeSpecifierNode;
 
-export type TypeSpecifierNode =
-  | TypeReferenceNode
-  | ListTypeNode
-  | MapTypeNode
-  | FunctionTypeNode
-  | RecordTypeNode
-  | UnionTypeNode
-  | MixinTypeNode
-  | FixedTypeSpecifierNode;
+export type TypeSpecifierNode = TypeReferenceNode | ListTypeNode | MapTypeNode | FunctionTypeNode | RecordTypeNode | UnionTypeNode | MixinTypeNode;
 
 export type StatementNode =
   | VariableNode
@@ -30,7 +22,8 @@ export type StatementNode =
   | ContinueNode
   | BreakNode
   | ReturnNode
-  | ExpressionNode;
+  | ExpressionNode
+  | UnboxedVariableNode;
 
 export type ExpressionNode =
   | TernaryOperatorNode
@@ -51,6 +44,7 @@ export type ExpressionNode =
   | MapOrListAccessNode
   | FunctionCallNode
   | MethodCallNode
+  // These are "artificial" nodes generated during type checking
   | IncompleteExpressionNode
   | NumericWideningNode
   | UnionBoxingNode
@@ -755,9 +749,24 @@ export class UnionBoxingNode extends BaseAstNode {
   }
 }
 
+export class UnboxedVariableNode extends BaseAstNode {
+  public readonly kind: "unboxed variable declaration" = "unboxed variable declaration";
+
+  constructor(public readonly name: IdentifierToken, public readonly unboxedValue: UnionUnboxingNode) {
+    super(name.location);
+    this._type = unboxedValue.type;
+  }
+
+  copy(): NoopNode {
+    // This is only called when instantiating a generic function. In that case, the new type checker
+    // pass will add a new unboxed variable node, which is why we turn this node into a noop.
+    return new NoopNode(this.name.location);
+  }
+}
+
 export class UnionUnboxingNode extends BaseAstNode {
   public readonly kind: "union unboxing" = "union unboxing";
-  constructor(public readonly expression: ExpressionNode, private readonly unboxedType: Type) {
+  constructor(public readonly expression: ExpressionNode, unboxedType: Type) {
     super(expression.location);
     this._type = unboxedType;
     if (rawType(expression.type).kind != "union" && rawType(expression.type) != AnyType) {
@@ -768,8 +777,8 @@ export class UnionUnboxingNode extends BaseAstNode {
     }
   }
 
-  copy(): UnionUnboxingNode {
-    return new UnionUnboxingNode(this.expression.copy() as ExpressionNode, this.unboxedType);
+  copy(): ExpressionNode {
+    throw new LittleFootError(this.location, "Internal error: an union unboxing node should never be copied");
   }
 }
 
@@ -780,23 +789,20 @@ export class ExpressionPreambleNode extends BaseAstNode {
     this._type = expression.type;
   }
 
-  copy(): ExpressionPreambleNode {
-    return new ExpressionPreambleNode(
-      this.preamble.map((preamble) => preamble.copy() as StatementNode),
-      this.expression.copy() as ExpressionNode
-    );
+  copy(): ExpressionNode {
+    throw new LittleFootError(this.location, "Internal error: an expression preamble node should never be copied");
   }
 }
 
-export class FixedTypeSpecifierNode extends BaseAstNode {
-  public readonly kind: "fixed type specifier" = "fixed type specifier";
-  constructor(public readonly location: SourceLocation, private readonly fixedType: Type) {
+export class NoopNode extends BaseAstNode {
+  public readonly kind: "noop" = "noop";
+
+  constructor(location: SourceLocation) {
     super(location);
-    this._type = fixedType;
   }
 
-  copy(): FixedTypeSpecifierNode {
-    return new FixedTypeSpecifierNode(this.location, this.fixedType);
+  copy(): BaseAstNode {
+    return this;
   }
 }
 
@@ -990,6 +996,9 @@ export function traverseAst(node: AstNode, parent: AstNode | null, callback: (no
     case "union boxing":
       traverseAst(node.expression, node, callback);
       break;
+    case "unboxed variable declaration":
+      traverseAst(node.unboxedValue, node, callback);
+      break;
     case "union unboxing":
       traverseAst(node.expression, node, callback);
       break;
@@ -999,7 +1008,7 @@ export function traverseAst(node: AstNode, parent: AstNode | null, callback: (no
       }
       traverseAst(node.expression, node, callback);
       break;
-    case "fixed type specifier":
+    case "noop":
       break;
     default:
       assertNever(node);

@@ -1,5 +1,5 @@
 // prettier-ignore
-import { AstNode, BaseAstNode, DoNode, ExpressionNode, ExpressionPreambleNode, FixedTypeSpecifierNode, ForEachNode, ForNode, FunctionLiteralNode, FunctionNode, ImportNode, ImportedNameNode, IsOperatorNode, LoopVariable as LoopVariableNode, NameAndTypeNode, NumericWideningNode, ReturnNode, StatementNode, TypeNode, TypeReferenceNode, TypeSpecifierNode, UnionBoxingNode, UnionUnboxingNode, VariableAccessNode, VariableNode, WhileNode, traverseAst, unbox } from "./ast";
+import { AstNode, BaseAstNode, DoNode, ExpressionNode, ExpressionPreambleNode, ForEachNode, ForNode, FunctionLiteralNode, FunctionNode, ImportNode, ImportedNameNode, IsOperatorNode, LoopVariable as LoopVariableNode, NameAndTypeNode, NumericWideningNode, ReturnNode, StatementNode, TypeNode, TypeReferenceNode, TypeSpecifierNode, UnboxedVariableNode, UnionBoxingNode, UnionUnboxingNode, VariableAccessNode, VariableNode, WhileNode, traverseAst, unbox } from "./ast";
 import { CompilerContext, Module, compileModule } from "./compiler";
 import { LittleFootError, indent } from "./error";
 import { SourceLocation } from "./source";
@@ -11,7 +11,7 @@ function assertNever(x: never) {
   throw new Error("Unexpected object: " + x);
 }
 
-export type Symbol = VariableNode | NameAndTypeNode | LoopVariableNode;
+export type Symbol = VariableNode | NameAndTypeNode | LoopVariableNode | UnboxedVariableNode;
 
 export const overloadableBinaryOperators = ["or", "and", "xor", "<", "<=", ">", ">=", "+", "-", "/", "*", "%", "[]"];
 
@@ -1368,6 +1368,7 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
       checkNodeTypes(node.expression, context);
       node.type = node.expression.type;
       throw node.error;
+    // FIXME all of the below should never be encountered I think?
     case "numeric widening":
       // The type of this node is static.
       checkNodeTypes(node.expression, context);
@@ -1375,6 +1376,11 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
     case "union boxing":
       // The type of this node is static.
       checkNodeTypes(node.expression, context);
+      break;
+    case "unboxed variable declaration":
+      // The type of this node is static.
+      checkNodeTypes(node.unboxedValue, context);
+      context.addToScope(node.name.value, node);
       break;
     case "union unboxing":
       // The type of this node is static.
@@ -1387,9 +1393,7 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
       checkNodeTypes(node.expression, context);
       node.type = node.expression.type;
       break;
-    case "fixed type specifier":
-      // FIXME does this work for generics?!
-      // Type is fixed, nothing to do here.
+    case "noop":
       break;
     default:
       assertNever(node);
@@ -1453,7 +1457,7 @@ function gatherIsOperators(expression: ExpressionNode, hasFalseBranch: boolean, 
     const leftExpression = isOperatorNode.leftExpression;
     const leftExpressionType = rawType(leftExpression.type);
     // The type must be a union or generic (which is assumed to be a union)
-    if (!(leftExpressionType.kind == "union" || isGeneric(leftExpressionType))) {
+    if (!(leftExpressionType.kind == "union" || leftExpressionType == AnyType)) {
       throw new LittleFootError(
         operator.isOperatorNode.leftExpression.location,
         `Left expression in 'is' operator must be a union, but got type '${leftExpression.type.signature}'`
@@ -1469,20 +1473,34 @@ function gatherIsOperators(expression: ExpressionNode, hasFalseBranch: boolean, 
       );
     }
 
-    // The false branch type is the the original type minus the type in the type specifier
+    // If the type is a union, the false branch type is the the original type minus the type in the type specifier
+    let falseBranchTypes: Type[] = [];
     if (leftExpressionType.kind == "union") {
-      // If the variable is generic, we use its type for the negated type set as well, as it's an any type.
-      const falseBranchTypes = isGeneric(leftExpression.type)
-        ? [operator.originalType]
-        : leftExpressionType.types.filter((type) => !typeIsAssignableTo(type, operator.trueType!));
+      if (operator.trueType.kind == "union") {
+        // If the true branch type is a union as well, we need to remove each individual type
+        falseBranchTypes.push(...leftExpressionType.types);
+        for (const trueUnionType of operator.trueType.types) {
+          falseBranchTypes = falseBranchTypes.filter((type) => !isEqual(type, trueUnionType));
+        }
+      } else {
+        // Otherwise we just need to remove that one type.
+        falseBranchTypes.push(...leftExpressionType.types.filter((type) => !isEqual(type, operator.trueType)));
+      }
       if (falseBranchTypes.length == 0 && (operator.isNegated || hasFalseBranch)) {
         throw new LittleFootError(
           operator.isOperatorNode.location,
-          `Negation of 'is' operator results in empty type for left expression in the ${operator.isNegated ? "true" : "false"} branch.`
+          `Negation of 'is' operator results in empty type for '${operator.variableName.value}' in the ${
+            operator.isNegated ? "true" : "false"
+          } branch.`
         );
       }
-      operator.falseType = falseBranchTypes.length == 1 ? falseBranchTypes[0] : new UnionType(falseBranchTypes);
     }
+
+    // If the variable is generic, we use its type for the negated type set as well, as it's an any type.
+    if (leftExpressionType == AnyType) {
+      falseBranchTypes.push(operator.originalType);
+    }
+    operator.falseType = falseBranchTypes.length == 1 ? falseBranchTypes[0] : new UnionType(falseBranchTypes);
 
     // If the operator is negated, swap the false and true branch types
     if (operator.isNegated) {
@@ -1501,6 +1519,7 @@ function gatherIsOperators(expression: ExpressionNode, hasFalseBranch: boolean, 
   // x is no longer the original union x, but the unboxed x from the first operator!
   //
   // We need to thus check if "shadowed" variables have been referenced a second time.
+  // FIXME what does this do, oh no...
   /*for (const operator of isOperators) {
     if (seenVariableNames.has(variableName.value)) {
       throw new LittleFootError(
@@ -1516,20 +1535,10 @@ function gatherIsOperators(expression: ExpressionNode, hasFalseBranch: boolean, 
 
 function applyIsOperators(isOperators: IsOperatorContext[], isTrueBranch: boolean, context: TypeCheckerContext): StatementNode[] {
   const variableInitializers: StatementNode[] = [];
+
   for (const isOperator of isOperators) {
     const type = isTrueBranch ? isOperator.trueType : isOperator.falseType;
-    const typeSpecifierNode = new FixedTypeSpecifierNode(isOperator.isOperatorNode.location, type);
-    const variableNode = new VariableNode(
-      isOperator.variableName,
-      isOperator.variableName,
-      typeSpecifierNode,
-      context.isInGenericFunctionOrTypeDeclaration()
-        ? isOperator.isOperatorNode.leftExpression
-        : new UnionUnboxingNode(isOperator.isOperatorNode.leftExpression, type),
-      false,
-      false,
-      false
-    );
+    const variableNode = new UnboxedVariableNode(isOperator.variableName, new UnionUnboxingNode(isOperator.isOperatorNode.leftExpression, type));
     variableInitializers.push(variableNode);
   }
   return variableInitializers;
@@ -1662,7 +1671,6 @@ function checkFunctionDeclarationNode(node: FunctionNode, context: TypeCheckerCo
         }
         if (node.returnType) checkNodeTypes(node.returnType, context);
 
-        // FIXME report duplicate generic type names
         // Check if all generic types are being used by parameters and/or return type
         let genericTypes = new Set<string>(node.genericTypeNames.map((type) => type.value));
         for (const parameter of node.parameters) {
@@ -2562,6 +2570,8 @@ function coerceNumericTypes(from: ExpressionNode, to: Type): ExpressionNode {
   // The caller must replace the original node with the widening node.
   if (canWidenFrom.get(fromType)?.has(toType)) {
     from = new NumericWideningNode(from, toType);
+  } else {
+    throw new LittleFootError(from.location, `Can not convert ${fromType.signature} to ${toType.signature} as precision would be lost.`);
   }
   return from;
 }
