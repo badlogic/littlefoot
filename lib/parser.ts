@@ -10,6 +10,8 @@ export enum Attribute {
   External,
 }
 
+// FIXME add enums or literal types with which one can build enums via unions. maybe try/catch/finally?
+
 export function parse(source: Source, errors: LittleFootError[]) {
   const ast: AstNode[] = [];
   const tokens = tokenize(source, errors);
