@@ -528,20 +528,29 @@ export class Types {
 }
 
 export function isEqual(from: Type, to: Type) {
-  // If both types are named types, then they are only
-  // equal if they are the same type by identity. Unless
-  // their concrete types are AnyType
+  // If both are named types, we need to cover a few cases
   if (from.kind == "named type" && to.kind == "named type") {
-    if (from.type == AnyType && to.type == AnyType) {
-      return true;
-    } else {
-      // If one is generic and the other isn't, the aren't equal
-      if (from.location.equals(to.location)) {
-        return (isGeneric(from) ? 1 : 0) + (isGeneric(to) ? 1 : 0) != 1;
-      } else {
-        return false;
-      }
+    // If both are generic any types, they are considered to be the same
+    if (from.type == AnyType && to.type == AnyType) return true;
+
+    // Identity check: If they aren't at the same location, they aren't equal.
+    if (!from.location.equals(to.location)) return false;
+
+    // Non-generic check: If they don't have generic type parameters, they are equal
+    // We know they are from the same location, so we could only check one.
+    if (from.genericTypes.length == 0 && to.genericTypes.length == 0) return true;
+
+    // Generic instance check: If only one is instantiated, they aren't equal.
+    // We know they are the same generic type
+    if ((from.isInstantiated && !to.isInstantiated) || (!from.isInstantiated && to.isInstantiated)) return false;
+
+    // Otherwise, they are both generic instantiated types. We must compare their generic type bindings
+    // for equality. We can assume their generic type count to be the same, as they are from
+    // the same location.
+    for (let i = 0; i < from.genericTypes.length; i++) {
+      if (!isEqual(from.genericTypes[i].type, to.genericTypes[i].type)) return false;
     }
+    return true;
   }
 
   // Unpack the type of named types.
@@ -588,7 +597,7 @@ export function isEqual(from: Type, to: Type) {
   //
   // FIXME the current implementation assumes that all types
   // within a union are distinct. However, the following
-  // degenerate case can arise (e.g. when mixins are involved):
+  // degenerate case can arise (e.g. when mixins are involved, or generics like T | number):
   //
   // type a = someType | someType | someType
   // type b = someType | anotherType | anotherType
@@ -827,10 +836,10 @@ export function hasUnion(type: Type) {
 }
 
 export function isRecursive(type: NamedType, errors: LittleFootError[]): boolean {
+  // FIXME this breaks V8 due to infinite "recursion" for
   const startErrors = errors.length;
   let seenTypes: Type[] = [];
   let typesToVisit: Type[] = [];
-  let isRecursive = false;
   typesToVisit.push(type.type);
   seenTypes.push(type);
   while (typesToVisit.length > 0) {
@@ -841,7 +850,6 @@ export function isRecursive(type: NamedType, errors: LittleFootError[]): boolean
     if (currType.kind == "named type") {
       typesToVisit.push(currType.type);
       if (currType == type) {
-        isRecursive = true;
         errors.push(
           new LittleFootError(
             type.ast.name.location,
@@ -855,7 +863,6 @@ export function isRecursive(type: NamedType, errors: LittleFootError[]): boolean
       if (currType.kind == "union") {
         for (const unionType of currType.types) {
           if (unionType == type) {
-            isRecursive = true;
             errors.push(
               new LittleFootError(
                 type.ast.name.location,

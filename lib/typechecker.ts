@@ -1284,21 +1284,13 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
           if (functionType.parameters.length != node.args.length) {
             throw new LittleFootError(node.location, `Expected ${functionType.parameters.length} arguments, got ${node.args.length}.`);
           }
-          for (let i = 0; i < node.args.length; i++) {
-            let arg = node.args[i];
-            const param = functionType.parameters[i];
-            const assignable = inferTypesAndCheckCompatibility(arg, param.type);
-            arg = node.args[i] = assignable.from;
-            if (!assignable.isAssignable) {
-              throw new LittleFootError(arg.location, `Expected type ${param.type.signature}, got ${arg.type.signature}`);
-            }
-          }
+          boxFunctionArguments(node.args, functionType);
           checkNodeTypes(node.target, context);
           node.type = functionType.returnType;
         } else {
           // Otherwise, lookup the best fitting function for the given args,
           // inferClosestFunction will also call checkFunctionNode in case the
-          // function hasn't been checked yet.
+          // function hasn't been checked yet and box the arguments.
           const closestFunc = inferClosestFunction(node.location, node.target, node.target.name.value, node.args, context);
           node.target.type = closestFunc;
           node.type = closestFunc.type.returnType;
@@ -1313,15 +1305,7 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
         if (functionType.parameters.length != node.args.length) {
           throw new LittleFootError(node.location, `Expected ${functionType.parameters.length} arguments, but got ${node.args.length}.`);
         }
-        for (let i = 0; i < node.args.length; i++) {
-          let arg = node.args[i];
-          const param = functionType.parameters[i];
-          const assignable = inferTypesAndCheckCompatibility(arg, param.type);
-          arg = node.args[i] = assignable.from;
-          if (!assignable.isAssignable) {
-            throw new LittleFootError(arg.location, `Expected type ${param.type.signature}, but got ${arg.type.signature}`);
-          }
-        }
+        boxFunctionArguments(node.args, functionType);
         node.type = functionType.returnType;
       }
       break;
@@ -1341,15 +1325,7 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
           if (functionType.parameters.length != node.args.length) {
             throw new LittleFootError(node.location, `Expected ${functionType.parameters.length} arguments, got ${node.args.length}.`);
           }
-          for (let i = 0; i < node.args.length; i++) {
-            let arg = node.args[i];
-            const param = functionType.parameters[i];
-            const assignable = inferTypesAndCheckCompatibility(arg, param.type);
-            arg = node.args[i] = assignable.from;
-            if (!assignable.isAssignable) {
-              throw new LittleFootError(arg.location, `Expected type ${param.type.signature}, got ${arg.type.signature}`);
-            }
-          }
+          boxFunctionArguments(node.args, functionType);
           node.target.type = functionType;
           node.type = functionType.returnType;
           return;
@@ -1639,6 +1615,18 @@ function reportFunctionNotFound(location: SourceLocation, name: string, args: Ex
   return new LittleFootError(location, errorMessage, supplementary);
 }
 
+function boxFunctionArguments(args: ExpressionNode[], functionType: FunctionType) {
+  for (let i = 0; i < args.length; i++) {
+    let arg = args[i];
+    const param = functionType.parameters[i];
+    const assignable = inferTypesAndCheckCompatibility(arg, param.type);
+    arg = args[i] = assignable.from;
+    if (!assignable.isAssignable) {
+      throw new LittleFootError(arg.location, `Expected type ${param.type.signature}, got ${arg.type.signature}`);
+    }
+  }
+}
+
 function checkFunctionDeclarationNode(node: FunctionNode, context: TypeCheckerContext, checkCode: boolean) {
   // If this function calls itself, it needs to have a return type.
   if (node.isBeingChecked && node.returnType == null) {
@@ -1807,6 +1795,14 @@ function checkOrInferFunctionReturnType(node: FunctionNode | FunctionLiteralNode
     if (returnTypes.length == 0) returnTypes.push(NothingType);
     // FIXME need to union box the return values. What do we do with no-value-returns?
     const returnType = returnTypes.length == 1 ? returnTypes[0] : unify(returnTypes[0], new UnionType(returnTypes));
+    if (returnTypes.length > 1) {
+      for (const ret of returns) {
+        if (ret.expression == null) {
+          throw new LittleFootError(ret.location, `Must return a value of type ${returnType.signature}.`);
+        }
+        ret.expression = new UnionBoxingNode(ret.expression, returnType);
+      }
+    }
     return returnType;
   }
 }
@@ -2002,8 +1998,8 @@ function inferTypesOfEmptyListAndMapLiterals(from: ExpressionNode, to: Type): bo
             if (!inferTypesOfEmptyListAndMapLiterals(unboxedElement, toType.elementType)) return false;
             from.elements[i] = unboxedElement;
           }
-          // FIXME box elements if nodeListToType() returns a union
-          from.type.setElementType(nodeTypesToUnionType(from.elements));
+          let elementType = nodeTypesToUnionType(from.elements);
+          from.type.setElementType(elementType);
         }
         return true;
       }
@@ -2048,8 +2044,8 @@ function inferTypesOfEmptyListAndMapLiterals(from: ExpressionNode, to: Type): bo
             if (!inferTypesOfEmptyListAndMapLiterals(unboxedValue, toType.valueType)) return false;
             from.values[i] = unboxedValue;
           }
-          // FIXME box elements if nodeListToType() returns a union
-          from.type.setValueType(nodeTypesToUnionType(from.values));
+          const elementType = nodeTypesToUnionType(from.values);
+          from.type.setValueType(elementType);
         }
         return true;
       }
@@ -2231,8 +2227,8 @@ function expandAndBoxLiteralValueTypesToUnions(from: ExpressionNode, to: Type): 
           for (let i = 0; i < from.elements.length; i++) {
             from.elements[i] = expandAndBoxLiteralValueTypesToUnions(from.elements[i], toType.elementType);
           }
-          // FIXME box elements if nodeListToType() returns a union
-          from.type.setElementType(nodeTypesToUnionType(from.elements));
+          const elementType = nodeTypesToUnionType(from.elements);
+          from.type.setElementType(elementType);
         }
       }
       return from;
@@ -2323,8 +2319,8 @@ function expandAndBoxLiteralValueTypesToUnions(from: ExpressionNode, to: Type): 
           for (let i = 0; i < from.values.length; i++) {
             from.values[i] = expandAndBoxLiteralValueTypesToUnions(from.values[i], toType.valueType);
           }
-          // FIXME box elements if nodeListToType() returns a union
-          from.type.setValueType(nodeTypesToUnionType(from.values));
+          const elementType = nodeTypesToUnionType(from.values);
+          from.type.setValueType(elementType);
         }
       }
       return from;
@@ -2636,6 +2632,7 @@ function inferClosestFunction(location: SourceLocation, target: AstNode, name: s
       context.withCurrentFunctionOrType(funcType.ast, () => {
         checkFunctionDeclarationNode(funcType.ast, context, true);
       });
+      boxFunctionArguments(args, funcType.type);
       return funcType;
     } catch (e) {
       const cause: LittleFootError =
@@ -3155,9 +3152,19 @@ function unify(a: Type, union: UnionType) {
   }
 
   for (const type of union.types) {
-    if (!seenSignatures.has(type.signature)) {
-      seenSignatures.add(type.signature);
-      unionTypes.push(type);
+    const raw = rawType(type);
+    if (raw.kind == "union") {
+      for (const rawUnionType of raw.types) {
+        if (!seenSignatures.has(rawUnionType.signature)) {
+          seenSignatures.add(rawUnionType.signature);
+          unionTypes.push(rawUnionType);
+        }
+      }
+    } else {
+      if (!seenSignatures.has(type.signature)) {
+        seenSignatures.add(type.signature);
+        unionTypes.push(type);
+      }
     }
   }
   return new UnionType(unionTypes.length == 0 ? [UnknownType] : unionTypes);
