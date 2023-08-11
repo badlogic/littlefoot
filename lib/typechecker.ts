@@ -484,6 +484,9 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
       }
       let unionType = new UnionType(node.unionTypes.map((type) => type.type));
       unionType = unify(unionType.types[0], unionType);
+      if (unionType.types.length == 1) {
+        throw new LittleFootError(node.location, `Final set of types in union only consists of type '${unionType.types[0].signature}'.`);
+      }
       node.type = unionType.types.length == 1 ? unionType.types[0] : unionType;
       break;
     }

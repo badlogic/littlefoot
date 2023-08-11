@@ -3,6 +3,14 @@ import { ListType, MapType, NameAndType, NamedType, NothingType, NumberType, Rec
 import { testCompile } from "./utils";
 
 describe("Typechecker tests", () => {
+  it("Should not allow unions with only one type", () => {
+    const { errors } = testCompile(`
+      type u = number | number
+    `);
+    expect(errors.length).toBe(1);
+    expect(errors[0].message).toBe("Final set of types in union only consists of type 'float64'.");
+  });
+
   it("Should error if a generic union type consists of the same type multiple times", () => {
     const { errors } = testCompile(`
     type bar[T] = T | number
