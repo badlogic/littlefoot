@@ -18,9 +18,11 @@ yet, because I'm too lazy to figure out the correct regex incantation 🤷"
 # You can select text in the source code file to see only the AST nodes
 # for the selection.
 
-# Apart from strings you can also have plain old numbers. You can specify
+# Apart from srings you can also have plain old numbers. You can specify
 # number values as integers, decimal, hex, and binary numbers. These
-# will be stored as 64-bit doubles.
+# will be stored as 64-bit doubles. But you can also have int8, int16, int32,
+# float32 and float64 (which is an alias for the number type). More on that
+# below.
 1; 2.234; 0xff; 0b10101;
 
 # Booleans values are also supported.
@@ -97,6 +99,28 @@ e = 1
 # where possible. It's not great at it yet. But the above
 # error is simply recorded, and the compiler will happily check
 # the remaining code for us.
+
+# Now that we know how to declare variables and function
+# arguments and their types, we can have a look at the other
+# numeric types. Littlefoot will convert your numeric literals
+# to whatever the type of the thing is you assign them to. On
+# their own, like above, they are always numbers (float64s).
+var byte: int8 = 0xff
+
+# you can use the as operator to coerce number literals
+var byte2 = 0xff as int8
+
+# This works for arrays too!
+var bytes: [int16] = [0xffff, 16000, 0]
+
+# If you go outside the numeric bounds of a type, the compiler
+# will scream at you
+var bytes2: [int8] = [0, 0b001010101111111111]
+
+# You can use the build in standard library functions to manually
+# convert a bigger numeric type to a smaller one. Know what you do
+# as this will lose precision!
+var short: int16 = int16(0xffffff)
 
 # Littelfoot comes with a tiny standard library to make working
 # with values easier. You can find it here:
