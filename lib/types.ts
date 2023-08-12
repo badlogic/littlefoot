@@ -1,4 +1,4 @@
-import { FunctionNode, TypeNode } from "./ast";
+import { FunctionNode, NumberLiteralNode, StringLiteralNode, TypeNode } from "./ast";
 import { LittleFootError } from "./error";
 import { SourceLocation } from "./source";
 
@@ -48,6 +48,23 @@ export class PrimitiveType extends BaseType {
 
   updateSignature(): void {
     this.signature = this.name;
+  }
+}
+
+export class LiteralType extends BaseType {
+  public readonly kind: "literal" = "literal";
+
+  constructor(public readonly literal: string | number) {
+    super();
+    this.updateSignature();
+  }
+
+  copy(namedTypeCopies = new Map<string, NamedType>()): LiteralType {
+    return this;
+  }
+
+  updateSignature(): void {
+    this.signature = typeof this.literal === "string" ? `"${this.literal}"` : `${this.literal}`;
   }
 }
 
@@ -328,7 +345,7 @@ export class NamedFunctionType extends BaseType {
   }
 }
 
-export type Type = PrimitiveType | ListType | MapType | RecordType | FunctionType | UnionType | NamedType | NamedFunctionType;
+export type Type = PrimitiveType | LiteralType | ListType | MapType | RecordType | FunctionType | UnionType | NamedType | NamedFunctionType;
 export const UnknownType = new PrimitiveType("$unknown");
 export const NothingType = new PrimitiveType("nothing");
 export const BooleanType = new PrimitiveType("boolean");
@@ -359,6 +376,8 @@ export function traverseType(type: Type, callback: (type: Type) => boolean, name
       traverseType(type.returnType, callback, namedTypesStack);
       break;
     case "primitive":
+      break;
+    case "literal":
       break;
     case "list":
       traverseType(type.elementType, callback, namedTypesStack);
@@ -566,6 +585,11 @@ export function isEqual(from: Type, to: Type) {
     return from.name == to.name;
   }
 
+  // Literal types must match by literal exactly.
+  if (from.kind == "literal" && to.kind == "literal") {
+    return from.literal == to.literal;
+  }
+
   // List types must have equal element types.
   if (from.kind == "list" && to.kind == "list") {
     return isEqual(from.elementType, to.elementType);
@@ -653,7 +677,7 @@ export function rawType(type: Type) {
 // and it will be reported to be assignable. This allows empty
 // list and map literals to be assigned to variables, fields,
 // function arguments and so on.
-export function isAssignableTo(from: Type, to: Type): boolean {
+export function isAssignableTo(from: Type, literal: string | number | undefined, to: Type): boolean {
   // If to is the any type, anything is assignable
   if (rawType(to) == AnyType) {
     return true;
@@ -681,6 +705,16 @@ export function isAssignableTo(from: Type, to: Type): boolean {
   // Non-exact matches are handled below.
   if (isEqual(from, to)) return true;
 
+  // If to is a literal, the from literal must match
+  if (to.kind == "literal") return to.literal == literal;
+
+  // If to is a string and from is a literal, it must be a string literal type
+  if (to == StringType && literal) return typeof literal === "string";
+
+  // If to is a number and from is a literal, it must be a number literal that fits
+  // the size of to's numeric type.
+  if (to == NumberType && literal) return typeof literal === "number";
+
   // If `from` is a union and `to` is not, then `from``
   // can not be assigned
   if (from.kind == "union" && to.kind != "union") {
@@ -696,14 +730,14 @@ export function isAssignableTo(from: Type, to: Type): boolean {
   if (to.kind == "union") {
     if (from.kind != "union") {
       for (const type of to.types) {
-        if (isAssignableTo(from, type)) return true;
+        if (isAssignableTo(from, literal, type)) return true;
       }
       return false;
     } else {
       for (const aType of from.types) {
         let found = false;
         for (const bType of to.types) {
-          if (isAssignableTo(aType, bType)) {
+          if (isAssignableTo(aType, literal, bType)) {
             found = true;
             break;
           }
@@ -722,7 +756,7 @@ export function isAssignableTo(from: Type, to: Type): boolean {
     if (rawType(to.elementType).kind == "union" && rawType(from.elementType).kind != "union") {
       return false;
     }
-    return isAssignableTo(from.elementType, to.elementType);
+    return isAssignableTo(from.elementType, literal, to.elementType);
   }
 
   // For maps, if the to value type is a union then
@@ -733,7 +767,7 @@ export function isAssignableTo(from: Type, to: Type): boolean {
     if (rawType(to.valueType).kind == "union" && rawType(from.valueType).kind != "union") {
       return false;
     }
-    return isAssignableTo(from.valueType, to.valueType);
+    return isAssignableTo(from.valueType, literal, to.valueType);
   }
 
   // We only get here if isEqual(from, to) was false, which means
@@ -761,7 +795,7 @@ export function isAssignableTo(from: Type, to: Type): boolean {
         }
 
         // Otherwise, from needs to be assignable to to.
-        if (isAssignableTo(fromField.type, toField.type)) {
+        if (isAssignableTo(fromField.type, literal, toField.type)) {
           matchedFields++;
           if (matchedFields == to.fields.length) return true;
           found = true;
@@ -786,9 +820,9 @@ export function isAssignableTo(from: Type, to: Type): boolean {
         return false;
       }
 
-      if (!isAssignableTo(from.parameters[i].type, to.parameters[i].type)) return false;
+      if (!isAssignableTo(from.parameters[i].type, literal, to.parameters[i].type)) return false;
     }
-    if (!isAssignableTo(from.returnType, to.returnType)) return false;
+    if (!isAssignableTo(from.returnType, literal, to.returnType)) return false;
     return true;
   }
 

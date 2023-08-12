@@ -3,9 +3,9 @@ import { AstNode, BaseAstNode, DoNode, ExpressionNode, ExpressionPreambleNode, F
 import { CompilerContext, Module, compileModule } from "./compiler";
 import { LittleFootError, indent } from "./error";
 import { SourceLocation } from "./source";
-import { IdentifierToken } from "./tokenizer";
+import { IdentifierToken, NumberToken } from "./tokenizer";
 // prettier-ignore
-import { AnyType, BooleanType, Float32Type, Float64Type, FunctionType, Int16Type, Int32Type, Int8Type, ListType, MapType, NameAndType, NamedFunctionType, NamedType, NothingType, NumberType, PrimitiveType, RecordType, ResolvingTypeMarker, StringType, Type, UnionType, UnknownType, hasEmptyListOrMap, hasUnion, isEqual, isGeneric, isRecursive, rawType, traverseType, isAssignableTo } from "./types";
+import { AnyType, BooleanType, Float32Type, Float64Type, FunctionType, Int16Type, Int32Type, Int8Type, ListType, MapType, NameAndType, NamedFunctionType, NamedType, NothingType, NumberType, PrimitiveType, RecordType, ResolvingTypeMarker, StringType, Type, UnionType, UnknownType, hasEmptyListOrMap, hasUnion, isEqual, isGeneric, isRecursive, rawType, traverseType, isAssignableTo, LiteralType } from "./types";
 
 function assertNever(x: never) {
   throw new Error("Unexpected object: " + x);
@@ -448,6 +448,10 @@ export function checkNodeTypes(node: AstNode, context: TypeCheckerContext) {
     }
     case "string literal": {
       node.type = StringType;
+      break;
+    }
+    case "literal type": {
+      node.type = new LiteralType(node.literal instanceof NumberToken ? node.literal.numericValue : node.literal.value);
       break;
     }
     case "list type": {
@@ -1468,7 +1472,7 @@ function gatherIsOperators(expression: ExpressionNode, hasFalseBranch: boolean, 
 
     // The true branch type is the type of the type specifier
     operator.trueType = isOperatorNode.typeNode.type;
-    if (!isAssignableTo(isOperatorNode.typeNode.type, leftExpression.type)) {
+    if (!isAssignableTo(isOperatorNode.typeNode.type, nodeToLiteral(leftExpression), leftExpression.type)) {
       throw new LittleFootError(
         leftExpression.location,
         `Left expression of 'is' operator has type '${leftExpression.type.signature}' and can never be type '${operator.trueType.signature}'.`
@@ -1772,7 +1776,7 @@ function checkOrInferFunctionReturnType(node: FunctionNode | FunctionLiteralNode
             node.expression = inferTypesAndCheckCompatibility(node.expression, returnType).from;
             node.type = node.expression.type;
           }
-          if (!isAssignableTo(node.type, returnType)) {
+          if (!isAssignableTo(node.type, nodeToLiteral(node.expression), returnType)) {
             throw new LittleFootError(
               node.location,
               `Can not return a value of type '${node.type.signature}' from a function with return type '${returnType.signature}'.`
@@ -1965,7 +1969,7 @@ function inferTypesAndCheckCompatibility(from: ExpressionNode, to: Type): { isAs
   inferTypesOfEmptyListAndMapLiterals(from, to);
   from = expandAndBoxLiteralValueTypesToUnions(from, to);
   from = coerceNumericTypes(from, to);
-  const isAssignable = isAssignableTo(from.type, to);
+  const isAssignable = isAssignableTo(from.type, nodeToLiteral(from), to);
   // Final pass for unions. If from is assignable and itself not a union
   // and to is a union, box from.
   if (isAssignable && rawType(from.type).kind != "union" && rawType(to).kind == "union") {
@@ -2134,7 +2138,7 @@ function expandAndBoxLiteralValueTypesToUnions(from: ExpressionNode, to: Type): 
 
     // If from is a primitive type, "box" it.
     if (
-      isAssignableTo(from.type, toType) &&
+      isAssignableTo(from.type, nodeToLiteral(from), toType) &&
       toType.kind == "union" &&
       from.type.kind == "primitive" &&
       (from.kind == "string literal" || from.kind == "boolean literal" || from.kind == "number literal" || from.kind == "nothing literal")
@@ -2149,7 +2153,7 @@ function expandAndBoxLiteralValueTypesToUnions(from: ExpressionNode, to: Type): 
       // If to's element type is a union, unify from's element type
       // with the union.
       if (toElementType.kind == "union") {
-        if (isAssignableTo(from.type.elementType, toElementType)) {
+        if (isAssignableTo(from.type.elementType, nodeToLiteral(from), toElementType)) {
           for (let i = 0; i < from.elements.length; i++) {
             from.elements[i] = new UnionBoxingNode(from.elements[i], toType.elementType);
           }
@@ -2243,7 +2247,7 @@ function expandAndBoxLiteralValueTypesToUnions(from: ExpressionNode, to: Type): 
       if (toValueType.kind == "union") {
         // If to's value type is a union, unify from's value type
         // with the union.
-        if (isAssignableTo(from.type.valueType, toValueType)) {
+        if (isAssignableTo(from.type.valueType, nodeToLiteral(from), toValueType)) {
           for (let i = 0; i < from.values.length; i++) {
             from.values[i] = new UnionBoxingNode(from.values[i], toType.valueType);
           }
@@ -2816,6 +2820,9 @@ function inferGenericTypeBindings(
       case "primitive":
         // leaf in type which can not be a generic type
         break;
+      case "literal":
+        // leaf in type which can not be a generic type
+        break;
       case "list":
         if (concreteType.kind == "list") {
           infer(node, genericType.elementType, concreteType.elementType, genericTypeBindings);
@@ -2866,7 +2873,7 @@ function inferGenericTypeBindings(
           // t(a)
           // a has type number, but is assignable to t(value: L | nothing).
           for (let i = 0; i < genericType.types.length; i++) {
-            if (isAssignableTo(concreteType, genericType.types[i])) {
+            if (isAssignableTo(concreteType, nodeToLiteral(concreteNode), genericType.types[i])) {
               infer(node, genericType.types[i], concreteType, genericTypeBindings);
               break;
             }
@@ -3031,6 +3038,9 @@ function instantiateGenericTypeWithBindings(
       case "primitive":
         // leaf in type which can not be a generic type
         break;
+      case "literal":
+        // leaf in type which can not be a generic type
+        break;
       case "list":
         type.elementType = replace(type.elementType, bindings);
         break;
@@ -3187,4 +3197,12 @@ function nodeTypesToUnionType(nodes: AstNode[]) {
     elementTypes = unique(elementTypes);
     return elementTypes.length == 1 ? elementTypes[0] : new UnionType(elementTypes);
   }
+}
+
+function nodeToLiteral(node: AstNode | null): string | number | undefined {
+  if (!node) return undefined;
+  if (node.kind == "string literal") return node.token.value;
+  if (node.kind == "number literal") return node.token.numericValue;
+  if (node.type.kind == "literal") return node.type.literal;
+  return undefined;
 }

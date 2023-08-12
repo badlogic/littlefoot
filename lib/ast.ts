@@ -1,8 +1,7 @@
-import { languages } from "monaco-editor";
 import { LittleFootError } from "./error";
 import { SourceLocation } from "./source";
 import { BoolToken, IdentifierToken, NothingToken, NumberToken, OperatorToken, StringToken, Token } from "./tokenizer";
-import { AnyType, Type, UnionType, UnknownType, isGeneric, rawType } from "./types";
+import { AnyType, Type, UnknownType, rawType } from "./types";
 
 export type AstNode = ImportNode | ImportedNameNode | InternalNode | TopLevelNode;
 
@@ -10,7 +9,15 @@ export type TopLevelNode = FunctionNode | TypeNode | StatementNode;
 
 export type InternalNode = NameAndTypeNode | LoopVariable | NoopNode | TypeSpecifierNode;
 
-export type TypeSpecifierNode = TypeReferenceNode | ListTypeNode | MapTypeNode | FunctionTypeNode | RecordTypeNode | UnionTypeNode | MixinTypeNode;
+export type TypeSpecifierNode =
+  | TypeReferenceNode
+  | LiteralTypeNode
+  | ListTypeNode
+  | MapTypeNode
+  | FunctionTypeNode
+  | RecordTypeNode
+  | UnionTypeNode
+  | MixinTypeNode;
 
 export type StatementNode =
   | VariableNode
@@ -79,6 +86,18 @@ export class TypeReferenceNode extends BaseAstNode {
 
   copy(): TypeReferenceNode {
     return new TypeReferenceNode(this.name, this.genericTypeBindings.map((binding) => binding.copy()) as TypeSpecifierNode[], this.closingBracket);
+  }
+}
+
+export class LiteralTypeNode extends BaseAstNode {
+  public readonly kind: "literal type" = "literal type";
+
+  constructor(public readonly literal: StringToken | NumberToken) {
+    super(literal.location);
+  }
+
+  copy(): LiteralTypeNode {
+    return new LiteralTypeNode(this.literal);
   }
 }
 
@@ -825,6 +844,8 @@ export function traverseAst(node: AstNode, parent: AstNode | null, callback: (no
       traverseAst(node.typeNode, node, callback);
       break;
     case "type reference":
+      break;
+    case "literal type":
       break;
     case "list type":
       traverseAst(node.elementType, node, callback);
